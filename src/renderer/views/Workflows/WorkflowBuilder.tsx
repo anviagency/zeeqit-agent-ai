@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { Dropdown } from '@/components/ui/Dropdown'
 import { useWorkflowStore } from '@/store/workflow.store'
+import { api } from '@/api'
 
 interface BuilderFormState {
   targetUrl: string
@@ -73,14 +74,14 @@ export function WorkflowBuilder({
     if (!validate()) return
     try {
       setCreating(true)
-      const result = await window.zeeqitApi.workflow.create({
+      const result = await api.workflow.create({
         targetUrl: form.targetUrl,
         extractionGoal: form.extractionGoal,
         mode: form.mode,
         schedule: form.schedule || undefined
       })
       if (result.success) {
-        const listResult = await window.zeeqitApi.workflow.list()
+        const listResult = await api.workflow.list()
         if (listResult.success && listResult.data) {
           setWorkflows(listResult.data as typeof workflows)
         }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ConfigDiffModal } from './ConfigDiffModal'
+import { api } from '@/api'
 
 const GOLOGIN_AFFILIATE_URL = 'https://gologin.com/join/zeeqit-IILQREB'
 
@@ -14,7 +15,7 @@ export function SettingsView(): React.JSX.Element {
 
   const handlePreviewDiff = async (): Promise<void> => {
     try {
-      const result = await window.zeeqitApi.config.diff({})
+      const result = await api.config.diff({})
       if (result.success && result.data) {
         setDiffContent(result.data)
         setDiffOpen(true)
@@ -27,7 +28,7 @@ export function SettingsView(): React.JSX.Element {
   const handleApply = async (): Promise<void> => {
     try {
       setApplying(true)
-      await window.zeeqitApi.config.apply({})
+      await api.config.apply({})
       setDiffOpen(false)
     } catch {
       // handled globally

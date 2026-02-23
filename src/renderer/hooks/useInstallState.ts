@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAppStore } from '@/store/app.store'
 import type { InstallationState } from '@shared/installation-states'
 import type { InstallProgressEvent } from '@shared/ipc-channels'
+import { api } from '@/api'
 
 interface UseInstallStateReturn {
   state: InstallationState
@@ -20,7 +21,7 @@ export function useInstallState(): UseInstallStateReturn {
 
   const checkStatus = useCallback(async () => {
     try {
-      const result = await window.zeeqitApi.openclaw.getStatus()
+      const result = await api.openclaw.getStatus()
       if (!mountedRef.current) return
 
       if (result.success && result.data) {
@@ -55,7 +56,7 @@ export function useInstallState(): UseInstallStateReturn {
     mountedRef.current = true
     void checkStatus()
 
-    const unsub = window.zeeqitApi.events.onInstallProgress(
+    const unsub = api.events.onInstallProgress(
       (...args: unknown[]) => {
         if (!mountedRef.current) return
 

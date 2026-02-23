@@ -58,6 +58,8 @@ function loadKeytar(): typeof import('keytar') | null {
 export class KeychainAdapter {
   private static instance: KeychainAdapter | null = null
   private readonly logger = LogRing.getInstance()
+  private cachedKey: Buffer | null = null
+  private cachePopulated = false
 
   private constructor() {}
 
@@ -74,6 +76,7 @@ export class KeychainAdapter {
   /**
    * Stores the master key in the OS keychain, falling back to
    * passphrase-based file storage on Linux if keytar is unavailable.
+   * Caches the key in memory so subsequent reads never hit the OS keychain again.
    *
    * @param key - 32-byte master key buffer.
    * @throws If both keytar and fallback storage fail.
@@ -83,6 +86,8 @@ export class KeychainAdapter {
       const keytar = loadKeytar()
       if (keytar) {
         await keytar.setPassword(SERVICE_NAME, ACCOUNT_NAME, key.toString('hex'))
+        this.cachedKey = key
+        this.cachePopulated = true
         this.logger.info('Master key stored in OS keychain')
         return
       }
@@ -93,24 +98,33 @@ export class KeychainAdapter {
     }
 
     await this.storeWithPassphraseFallback(key)
+    this.cachedKey = key
+    this.cachePopulated = true
   }
 
   /**
-   * Retrieves the master key from the OS keychain, falling back to
-   * passphrase-based file storage if keytar is unavailable.
+   * Retrieves the master key. Uses an in-memory cache after the first
+   * successful retrieval so the OS keychain is only accessed once per
+   * application lifecycle (single password prompt).
    *
    * @returns The 32-byte master key buffer, or null if no key is stored.
-   * @throws If both keytar and fallback retrieval fail unexpectedly.
    */
   async getMasterKey(): Promise<Buffer | null> {
+    if (this.cachePopulated) {
+      return this.cachedKey
+    }
+
     try {
       const keytar = loadKeytar()
       if (keytar) {
         const hex = await keytar.getPassword(SERVICE_NAME, ACCOUNT_NAME)
         if (hex) {
-          this.logger.debug('Master key retrieved from OS keychain')
-          return Buffer.from(hex, 'hex')
+          this.cachedKey = Buffer.from(hex, 'hex')
+          this.cachePopulated = true
+          this.logger.debug('Master key retrieved from OS keychain (cached)')
+          return this.cachedKey
         }
+        this.cachePopulated = true
         return null
       }
     } catch (err) {
@@ -119,7 +133,12 @@ export class KeychainAdapter {
       })
     }
 
-    return this.getWithPassphraseFallback()
+    const fallback = this.getWithPassphraseFallback()
+    if (fallback) {
+      this.cachedKey = fallback
+      this.cachePopulated = true
+    }
+    return fallback
   }
 
   /**

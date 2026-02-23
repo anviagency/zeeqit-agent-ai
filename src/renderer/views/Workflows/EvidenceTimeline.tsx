@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/Button'
+import { api } from '@/api'
 
 interface EvidenceStep {
   timestamp: string
@@ -44,7 +45,7 @@ export function EvidenceTimeline({
   const loadChain = useCallback(async (): Promise<void> => {
     try {
       setLoading(true)
-      const result = await window.zeeqitApi.evidence.getChain(executionId)
+      const result = await api.evidence.getChain(executionId)
       if (result.success && result.data) {
         setSteps(result.data as EvidenceStep[])
       }
@@ -62,7 +63,7 @@ export function EvidenceTimeline({
   const handleVerify = async (): Promise<void> => {
     try {
       setVerifying(true)
-      const result = await window.zeeqitApi.evidence.verify(executionId)
+      const result = await api.evidence.verify(executionId)
       if (result.success && result.data) {
         setVerification(result.data as ChainVerification)
       }

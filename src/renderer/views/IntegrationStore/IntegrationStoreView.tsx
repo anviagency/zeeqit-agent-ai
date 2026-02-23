@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { api } from '@/api'
 
 type IntegrationStatus = 'configured' | 'available' | 'coming_soon'
 
@@ -142,7 +143,7 @@ export function IntegrationStoreView(): React.JSX.Element {
     setInstallingId(integration.id)
     try {
       if (integration.configKey) {
-        await window.zeeqitApi.config.apply({
+        await api.config.apply({
           [integration.configKey.split('.')[0]]: { enabled: true }
         })
       }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { api } from '@/api'
 
 /**
  * GoLogin browser engine settings card.
@@ -13,7 +14,7 @@ export function BrowserEngineCard(): React.JSX.Element {
   const handleValidate = async (): Promise<void> => {
     try {
       setValidating(true)
-      await window.zeeqitApi.gologin.validate(token)
+      await api.gologin.validate(token)
     } catch {
       // error handling delegated to global error boundary
     } finally {

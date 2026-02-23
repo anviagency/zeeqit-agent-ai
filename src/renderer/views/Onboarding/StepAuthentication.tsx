@@ -12,7 +12,8 @@ export function StepAuthentication(): React.JSX.Element {
 
   const showBrowser = modules.browser
   const showTelegram = modules.telegram
-  const hasExternal = showBrowser || showTelegram
+  const showApify = modules.apify
+  const hasExternal = showBrowser || showTelegram || showApify
 
   return (
     <div>
@@ -110,6 +111,45 @@ export function StepAuthentication(): React.JSX.Element {
             placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
             value={auth.telegramToken}
             onChange={(e) => setAuth('telegramToken', e.target.value)}
+            style={{
+              width: '100%',
+              background: 'transparent',
+              border: 'none',
+              borderBottom: '2px solid rgba(255,255,255,0.2)',
+              color: '#fff',
+              fontSize: '2rem',
+              padding: '10px 0',
+              outline: 'none',
+              fontWeight: 500,
+              letterSpacing: '-0.5px',
+              transition: 'border-color 0.3s ease',
+              fontFamily: 'inherit',
+            }}
+            onFocus={(e) => { e.currentTarget.style.borderBottomColor = '#fff' }}
+            onBlur={(e) => { e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.2)' }}
+          />
+        </div>
+      )}
+
+      {showApify && (
+        <div style={{ marginTop: (showBrowser || showTelegram) ? 60 : 0, marginBottom: 40 }}>
+          <label
+            style={{
+              display: 'block',
+              fontSize: '0.9rem',
+              textTransform: 'uppercase',
+              letterSpacing: '2px',
+              color: '#666',
+              marginBottom: 12,
+            }}
+          >
+            Apify API Token
+          </label>
+          <input
+            type="password"
+            placeholder="apify_api_..."
+            value={auth.apifyToken}
+            onChange={(e) => setAuth('apifyToken', e.target.value)}
             style={{
               width: '100%',
               background: 'transparent',

@@ -27,18 +27,44 @@ vi.mock('framer-motion', () => {
   }
 })
 
-const mockConfigDiff = vi.fn()
-const mockConfigApply = vi.fn()
-
-vi.stubGlobal('window', {
-  ...globalThis.window,
-  zeeqitApi: {
+vi.mock('../../../src/renderer/api', () => ({
+  api: {
     config: {
-      diff: mockConfigDiff,
-      apply: mockConfigApply
+      diff: vi.fn().mockResolvedValue({ success: true, data: '{"changes": []}' }),
+      apply: vi.fn().mockResolvedValue({ success: true }),
+      get: vi.fn().mockResolvedValue({ success: true, data: {} }),
+      rollback: vi.fn(),
+      listBackups: vi.fn()
+    },
+    vault: {
+      store: vi.fn().mockResolvedValue({ success: true }),
+      get: vi.fn().mockResolvedValue({ success: true }),
+      list: vi.fn().mockResolvedValue({ success: true, data: [] }),
+      status: vi.fn().mockResolvedValue({ success: true })
+    },
+    gologin: {
+      validate: vi.fn().mockResolvedValue({ success: true }),
+      listProfiles: vi.fn(),
+      launch: vi.fn(),
+      stop: vi.fn(),
+      testSession: vi.fn()
+    },
+    daemon: {
+      start: vi.fn().mockResolvedValue({ success: true }),
+      stop: vi.fn().mockResolvedValue({ success: true }),
+      restart: vi.fn().mockResolvedValue({ success: true }),
+      status: vi.fn().mockResolvedValue({ success: true, data: { running: false } }),
+      logs: vi.fn().mockResolvedValue({ success: true, data: [] })
+    },
+    events: {
+      onInstallProgress: vi.fn(() => () => {}),
+      onHealthUpdate: vi.fn(() => () => {}),
+      onGatewayState: vi.fn(() => () => {}),
+      onDaemonLog: vi.fn(() => () => {}),
+      onWorkflowProgress: vi.fn(() => () => {})
     }
   }
-})
+}))
 
 vi.mock('../../../src/renderer/views/Settings/ConfigDiffModal', () => ({
   ConfigDiffModal: ({
@@ -72,6 +98,7 @@ vi.mock('../../../src/renderer/store/app.store', () => ({
   })
 }))
 
+import { api } from '../../../src/renderer/api'
 import { SettingsView } from '../../../src/renderer/views/Settings/SettingsView'
 
 describe('SettingsView', () => {
@@ -103,13 +130,11 @@ describe('SettingsView', () => {
     })
 
     it('should call config.diff when Preview Config Diff is clicked', async () => {
-      mockConfigDiff.mockResolvedValue({ success: true, data: '{"changes": []}' })
-
       render(<SettingsView />)
       const diffBtn = screen.getByText('Preview Config Diff')
       fireEvent.click(diffBtn)
 
-      expect(mockConfigDiff).toHaveBeenCalled()
+      expect(api.config.diff).toHaveBeenCalled()
     })
   })
 })

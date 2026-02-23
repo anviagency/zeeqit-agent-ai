@@ -29,7 +29,7 @@ export function App(): React.JSX.Element {
     if (installState === 'not_installed' || installState === 'interrupted') {
       setCurrentView('onboarding')
     } else if (currentView === 'onboarding') {
-      setCurrentView('topology')
+      setCurrentView('workflows')
     }
   }, [installState, loading, currentView, setCurrentView])
 

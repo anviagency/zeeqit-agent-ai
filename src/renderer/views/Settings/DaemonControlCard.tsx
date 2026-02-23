@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Card } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
+import { api } from '@/api'
 
 type DaemonStatus = 'running' | 'stopped' | 'unknown'
 
@@ -20,8 +21,8 @@ export function DaemonControlCard(): React.JSX.Element {
   const execAction = async (action: 'start' | 'stop' | 'restart'): Promise<void> => {
     try {
       setLoading(action)
-      await window.zeeqitApi.daemon[action]()
-      const result = await window.zeeqitApi.daemon.status()
+      await api.daemon[action]()
+      const result = await api.daemon.status()
       if (result.success) {
         const data = result.data as { running?: boolean } | undefined
         setStatus(data?.running ? 'running' : 'stopped')

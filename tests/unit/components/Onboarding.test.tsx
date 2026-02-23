@@ -27,6 +27,23 @@ vi.mock('framer-motion', () => {
   }
 })
 
+vi.mock('../../../src/renderer/api', () => ({
+  api: {
+    openclaw: {
+      install: vi.fn().mockResolvedValue({ success: true }),
+      getStatus: vi.fn().mockResolvedValue({ success: true, data: null }),
+      repair: vi.fn()
+    },
+    events: {
+      onInstallProgress: vi.fn(() => () => {}),
+      onHealthUpdate: vi.fn(() => () => {}),
+      onGatewayState: vi.fn(() => () => {}),
+      onDaemonLog: vi.fn(() => () => {}),
+      onWorkflowProgress: vi.fn(() => () => {})
+    }
+  }
+}))
+
 import { useOnboardingStore } from '../../../src/renderer/store/onboarding.store'
 import { OnboardingLayout } from '../../../src/renderer/views/Onboarding/OnboardingLayout'
 
@@ -37,22 +54,15 @@ vi.mock('../../../src/renderer/store/app.store', () => ({
     })
 }))
 
-Object.defineProperty(window, 'zeeqitApi', {
-  value: {
-    openclaw: { install: vi.fn().mockResolvedValue({ success: true }) },
-    events: { onInstallProgress: vi.fn(() => () => {}) }
-  },
-  writable: true
-})
-
 describe('OnboardingLayout', () => {
   beforeEach(() => {
     act(() => {
       useOnboardingStore.setState({
         currentStep: 1,
-        modules: { core: true, browser: false, telegram: false },
+        modules: { core: true, browser: false, telegram: false, apify: false },
+        installMethod: 'npm' as const,
         intelligence: { persona: '', openaiKey: '', anthropicKey: '' },
-        auth: { gologinToken: '', telegramToken: '' },
+        auth: { gologinToken: '', telegramToken: '', apifyToken: '' },
         isDeploying: false,
         deployComplete: false
       })
@@ -121,7 +131,7 @@ describe('OnboardingLayout', () => {
       act(() => {
         useOnboardingStore.setState({
           currentStep: 3,
-          modules: { core: true, browser: false, telegram: false }
+          modules: { core: true, browser: false, telegram: false, apify: false }
         })
       })
 
@@ -133,7 +143,7 @@ describe('OnboardingLayout', () => {
       act(() => {
         useOnboardingStore.setState({
           currentStep: 3,
-          modules: { core: true, browser: true, telegram: false }
+          modules: { core: true, browser: true, telegram: false, apify: false }
         })
       })
 
@@ -145,12 +155,24 @@ describe('OnboardingLayout', () => {
       act(() => {
         useOnboardingStore.setState({
           currentStep: 3,
-          modules: { core: true, browser: false, telegram: true }
+          modules: { core: true, browser: false, telegram: true, apify: false }
         })
       })
 
       render(<OnboardingLayout />)
       expect(screen.getByText(/Telegram Bot Token/i)).toBeInTheDocument()
+    })
+
+    it('should show Apify token field when apify module is enabled', () => {
+      act(() => {
+        useOnboardingStore.setState({
+          currentStep: 3,
+          modules: { core: true, browser: false, telegram: false, apify: true }
+        })
+      })
+
+      render(<OnboardingLayout />)
+      expect(screen.getByText(/Apify API Token/i)).toBeInTheDocument()
     })
   })
 })

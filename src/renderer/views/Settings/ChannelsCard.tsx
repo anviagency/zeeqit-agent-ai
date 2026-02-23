@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/Input'
 import { Toggle } from '@/components/ui/Toggle'
 import { Button } from '@/components/ui/Button'
 import { Dropdown } from '@/components/ui/Dropdown'
+import { api } from '@/api'
 
 interface ChannelState {
   telegram: {
@@ -54,17 +55,17 @@ export function ChannelsCard(): React.JSX.Element {
     try {
       setSaving(true)
       if (channels.telegram.botToken) {
-        await window.zeeqitApi.vault.store('channels', 'telegramBotToken', channels.telegram.botToken)
+        await api.vault.store('channels', 'telegramBotToken', channels.telegram.botToken)
       }
-      await window.zeeqitApi.vault.store('channels', 'telegramDmPolicy', channels.telegram.dmPolicy)
-      await window.zeeqitApi.vault.store('channels', 'telegramEnabled', String(channels.telegram.enabled))
-      await window.zeeqitApi.vault.store('channels', 'whatsappEnabled', String(channels.whatsapp.enabled))
+      await api.vault.store('channels', 'telegramDmPolicy', channels.telegram.dmPolicy)
+      await api.vault.store('channels', 'telegramEnabled', String(channels.telegram.enabled))
+      await api.vault.store('channels', 'whatsappEnabled', String(channels.whatsapp.enabled))
       if (channels.whatsapp.phoneNumber) {
-        await window.zeeqitApi.vault.store('channels', 'whatsappPhone', channels.whatsapp.phoneNumber)
+        await api.vault.store('channels', 'whatsappPhone', channels.whatsapp.phoneNumber)
       }
-      await window.zeeqitApi.vault.store('channels', 'discordEnabled', String(channels.discord.enabled))
+      await api.vault.store('channels', 'discordEnabled', String(channels.discord.enabled))
       if (channels.discord.botToken) {
-        await window.zeeqitApi.vault.store('channels', 'discordBotToken', channels.discord.botToken)
+        await api.vault.store('channels', 'discordBotToken', channels.discord.botToken)
       }
     } catch {
       // error handling delegated to global error boundary

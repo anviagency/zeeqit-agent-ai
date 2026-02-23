@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
+import { api } from '@/api'
 
 /**
  * Model provider settings card for OpenAI and Anthropic keys.
@@ -15,9 +16,9 @@ export function IntelligenceCard(): React.JSX.Element {
   const handleSave = async (): Promise<void> => {
     try {
       setSaving(true)
-      await window.zeeqitApi.vault.store('intelligence', 'persona', persona)
-      if (openaiKey) await window.zeeqitApi.vault.store('intelligence', 'openaiKey', openaiKey)
-      if (anthropicKey) await window.zeeqitApi.vault.store('intelligence', 'anthropicKey', anthropicKey)
+      await api.vault.store('intelligence', 'persona', persona)
+      if (openaiKey) await api.vault.store('intelligence', 'openaiKey', openaiKey)
+      if (anthropicKey) await api.vault.store('intelligence', 'anthropicKey', anthropicKey)
     } catch {
       // error handling delegated to global error boundary
     } finally {

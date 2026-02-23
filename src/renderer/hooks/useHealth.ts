@@ -3,6 +3,7 @@ import { useAppStore, type HealthLights } from '@/store/app.store'
 import type { HealthContractResult } from '@shared/health-contract'
 import { HEALTH_CHECK_INTERVAL_MS } from '@shared/health-contract'
 import type { HealthLightState } from '@shared/ipc-channels'
+import { api } from '@/api'
 
 function deriveLight(
   checks: HealthContractResult['checks'],
@@ -40,7 +41,7 @@ export function useHealth(): HealthLights {
 
   const poll = useCallback(async () => {
     try {
-      const result = await window.zeeqitApi.diagnostics.health()
+      const result = await api.diagnostics.health()
       if (!mountedRef.current) return
       if (!result.success || !result.data) return
 

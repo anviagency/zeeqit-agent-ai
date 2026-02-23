@@ -27,8 +27,19 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   {
+    id: 'workflows',
+    label: 'Workflow Builder',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+        <circle cx="8.5" cy="8.5" r="1.5" />
+        <polyline points="21 15 16 10 5 21" />
+      </svg>
+    ),
+  },
+  {
     id: 'topology',
-    label: 'Topology',
+    label: 'Runtime Topology',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <circle cx="12" cy="12" r="10" />
@@ -44,18 +55,6 @@ const navItems: NavItem[] = [
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
         <polyline points="16 18 22 12 16 6" />
         <polyline points="8 6 2 12 8 18" />
-      </svg>
-    ),
-  },
-  {
-    id: 'store',
-    label: 'Integration Store',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <path d="M12 22v-5" />
-        <path d="M9 8V2" />
-        <path d="M15 8V2" />
-        <path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z" />
       </svg>
     ),
   },

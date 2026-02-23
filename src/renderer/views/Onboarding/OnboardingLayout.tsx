@@ -34,9 +34,12 @@ export function OnboardingLayout(): React.JSX.Element {
   const isLastStep = currentStep === TOTAL_STEPS
   const isLastBeforeTerminal = currentStep === TOTAL_STEPS - 1
 
+  const setInstallationState = useAppStore((s) => s.setInstallationState)
+
   const handleNext = (): void => {
     if (isLastStep && deployComplete) {
-      setCurrentView('topology')
+      setInstallationState('healthy')
+      setCurrentView('workflows')
       return
     }
     if (!isLastStep) nextStep()

@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { Toggle } from '@/components/ui/Toggle'
 import { Button } from '@/components/ui/Button'
+import { api } from '@/api'
 
 interface AutomationState {
   cronSchedule: string
@@ -36,11 +37,11 @@ export function AutomationCard(): React.JSX.Element {
   const handleSave = async (): Promise<void> => {
     try {
       setSaving(true)
-      await window.zeeqitApi.vault.store('automation', 'cronSchedule', state.cronSchedule)
-      await window.zeeqitApi.vault.store('automation', 'scheduledEnabled', String(state.scheduledEnabled))
-      await window.zeeqitApi.vault.store('automation', 'maxConcurrent', String(state.maxConcurrent))
-      await window.zeeqitApi.vault.store('automation', 'retryOnFailure', String(state.retryOnFailure))
-      await window.zeeqitApi.vault.store('automation', 'maxRetries', String(state.maxRetries))
+      await api.vault.store('automation', 'cronSchedule', state.cronSchedule)
+      await api.vault.store('automation', 'scheduledEnabled', String(state.scheduledEnabled))
+      await api.vault.store('automation', 'maxConcurrent', String(state.maxConcurrent))
+      await api.vault.store('automation', 'retryOnFailure', String(state.retryOnFailure))
+      await api.vault.store('automation', 'maxRetries', String(state.maxRetries))
     } catch {
       // error handling delegated to global error boundary
     } finally {

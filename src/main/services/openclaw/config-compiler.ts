@@ -185,8 +185,17 @@ export class ConfigCompiler {
   }
 
   private mapStateToConfig(state: Record<string, unknown>): Record<string, unknown> {
+    const intelligence = (state['intelligence'] as Record<string, string>) ?? {}
+    const modules = (state['modules'] as Record<string, boolean>) ?? {}
+
+    const persona = intelligence['persona'] || 'Zeeqit Agent'
+
     return {
-      identity: state['identity'] ?? {},
+      identity: {
+        name: persona,
+        theme: '',
+        emoji: '◇',
+      },
       agents: {
         defaults: {
           workspace: (state['workspace'] as string) ?? '~/.openclaw/workspace',
@@ -199,10 +208,16 @@ export class ConfigCompiler {
           timeoutSeconds: (state['timeoutSeconds'] as number) ?? 600
         }
       },
-      channels: state['channels'] ?? {},
+      channels: {
+        telegram: {
+          enabled: modules['telegram'] ?? false,
+          botToken: '',
+          dmPolicy: 'pairing',
+        },
+      },
       tools: state['tools'] ?? {},
       skills: state['skills'] ?? {},
-      gateway: state['gateway'] ?? {}
+      gateway: state['gateway'] ?? {},
     }
   }
 

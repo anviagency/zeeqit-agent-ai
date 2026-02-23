@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { Card } from '@/components/ui/Card'
 import { StatusDot } from '@/components/ui/StatusDot'
+import { api } from '@/api'
 
 interface AgentConfig {
   name: string
@@ -33,7 +34,7 @@ export function MultiAgentView(): React.JSX.Element {
   const loadConfig = useCallback(async (): Promise<void> => {
     try {
       setLoading(true)
-      const result = await window.zeeqitApi.routing.getConfig()
+      const result = await api.routing.getConfig()
       if (result.success && result.data) {
         const data = result.data as { agents?: AgentConfig[] }
         setAgents(data.agents ?? [])

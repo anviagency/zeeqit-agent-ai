@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { IpcResult } from '@shared/ipc-channels'
+import { api } from '@/api'
 
 interface UseIpcState<T> {
   data: T | null
@@ -12,16 +13,16 @@ interface UseIpcReturn<T> extends UseIpcState<T> {
 }
 
 /**
- * Generic hook that wraps a window.zeeqitApi call, unwraps the IpcResult envelope,
+ * Generic hook that wraps an api call, unwraps the IpcResult envelope,
  * and exposes `{ data, loading, error, refetch }`.
  *
- * @param fetcher - An async function that returns an `IpcResult<T>` (e.g. `() => window.zeeqitApi.openclaw.getStatus()`)
+ * @param fetcher - An async function that returns an `IpcResult<T>` (e.g. `() => api.openclaw.getStatus()`)
  * @param options.immediate - Whether to call the fetcher on mount (default: true)
  *
  * @example
  * ```ts
  * const { data, loading, error, refetch } = useIpc(
- *   () => window.zeeqitApi.daemon.logs(50)
+ *   () => api.daemon.logs(50)
  * )
  * ```
  */

@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { registerAllIpcHandlers } from './ipc/register'
+import { HttpApiServer } from './server/http-api'
 import { GoLoginService } from './services/gologin/client'
 import { GatewayWebSocketClient } from './services/gateway/websocket-client'
 import { LogRing } from './services/diagnostics/log-ring'
@@ -45,7 +46,28 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
+async function startHttpApiAndOpenBrowser(): Promise<void> {
+  try {
+    const httpServer = HttpApiServer.getInstance()
+    const port = await httpServer.start()
+    logger.info('HTTP API server ready', { port })
+
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+      const url = process.env['ELECTRON_RENDERER_URL']
+      logger.info('Opening browser to dev server', { url })
+      shell.openExternal(url)
+    } else {
+      const url = `http://127.0.0.1:${port}`
+      logger.info('Opening browser', { url })
+      shell.openExternal(url)
+    }
+  } catch (err) {
+    logger.error('Failed to start HTTP API, falling back to Electron window', { err })
+    createWindow()
+  }
+}
+
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('com.zeeqit.app')
 
   app.on('browser-window-created', (_, window) => {
@@ -53,11 +75,16 @@ app.whenReady().then(() => {
   })
 
   registerAllIpcHandlers()
-  createWindow()
+
+  await startHttpApiAndOpenBrowser()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow()
+      const httpServer = HttpApiServer.getInstance()
+      const rendererUrl = is.dev && process.env['ELECTRON_RENDERER_URL']
+        ? process.env['ELECTRON_RENDERER_URL']
+        : `http://127.0.0.1:${httpServer.getPort()}`
+      shell.openExternal(rendererUrl)
     }
   })
 
@@ -65,13 +92,13 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  // Keep running — we're a background service
 })
 
 app.on('before-quit', async () => {
   logger.info('Zeeqit shutting down, cleaning up...')
+
+  HttpApiServer.getInstance().stop()
 
   try {
     await GoLoginService.getInstance().killOrphanedSessions()

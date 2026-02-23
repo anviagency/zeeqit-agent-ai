@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useAppStore, type GatewayConnectionState } from '@/store/app.store'
 import type { GatewayStateEvent } from '@shared/ipc-channels'
+import { api } from '@/api'
 
 interface UseGatewayReturn {
   state: GatewayConnectionState
@@ -18,7 +19,7 @@ export function useGateway(): UseGatewayReturn {
   useEffect(() => {
     mountedRef.current = true
 
-    const unsub = window.zeeqitApi.events.onGatewayState(
+    const unsub = api.events.onGatewayState(
       (...args: unknown[]) => {
         if (!mountedRef.current) return
 

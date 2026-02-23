@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { api } from '@/api'
 
 interface EvidenceEntry {
   id: string
@@ -19,7 +20,7 @@ interface UseEvidenceReturn {
 
 /**
  * Provides access to the evidence chain for a workflow run.
- * Exposes load, verify, and export operations against `window.zeeqitApi.evidence`.
+ * Exposes load, verify, and export operations against `api.evidence`.
  */
 export function useEvidence(): UseEvidenceReturn {
   const [chain, setChain] = useState<EvidenceEntry[]>([])
@@ -31,7 +32,7 @@ export function useEvidence(): UseEvidenceReturn {
     setError(null)
 
     try {
-      const result = await window.zeeqitApi.evidence.getChain(workflowRunId)
+      const result = await api.evidence.getChain(workflowRunId)
       if (result.success && result.data) {
         setChain(result.data as unknown as EvidenceEntry[])
       } else {
@@ -46,7 +47,7 @@ export function useEvidence(): UseEvidenceReturn {
 
   const verify = useCallback(async (chainId: string): Promise<boolean> => {
     try {
-      const result = await window.zeeqitApi.evidence.verify(chainId)
+      const result = await api.evidence.verify(chainId)
       return result.success && !!result.data
     } catch {
       return false
@@ -55,7 +56,7 @@ export function useEvidence(): UseEvidenceReturn {
 
   const exportChain = useCallback(async (chainId: string): Promise<string | null> => {
     try {
-      const result = await window.zeeqitApi.evidence.export(chainId)
+      const result = await api.evidence.export(chainId)
       if (result.success && result.data) {
         return result.data as unknown as string
       }

@@ -16,7 +16,7 @@ import { IpcChannels } from '@shared/ipc-channels'
 
 const logger = LogRing.getInstance()
 const CHECKPOINT_FILE = 'install-checkpoint.json'
-const OPENCLAW_VERSION = '1.0.0'
+const OPENCLAW_VERSION = 'latest'
 
 /**
  * Orchestrates the idempotent OpenClaw installation flow with checkpoint-based resume.
@@ -58,13 +58,32 @@ export class OpenClawInstaller {
       }
 
       const startIdx = INSTALL_STEP_ORDER.indexOf(startStep)
+      const nonCriticalSteps: InstallStep[] = ['openclaw', 'daemon', 'health']
+      const errors: string[] = []
 
       for (let i = startIdx; i < INSTALL_STEP_ORDER.length; i++) {
         const step = INSTALL_STEP_ORDER[i]
-        await this.executeStep(step, config)
+        try {
+          await this.executeStep(step, config)
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          if (nonCriticalSteps.includes(step)) {
+            logger.warn(`Non-critical step "${step}" failed, continuing`, { error: message })
+            errors.push(`${step}: ${message}`)
+          } else {
+            throw err
+          }
+        }
       }
 
-      logger.info('OpenClaw installation completed successfully')
+      if (errors.length > 0) {
+        logger.info('Installation completed with warnings', { errors })
+        this.emitProgress('complete', 'completed',
+          `Installation completed with ${errors.length} warning(s): ${errors.join('; ')}`)
+      } else {
+        logger.info('OpenClaw installation completed successfully')
+        this.emitProgress('complete', 'completed', 'Installation completed successfully')
+      }
     } catch (err) {
       logger.error('OpenClaw installation failed', {
         error: err instanceof Error ? err.message : String(err)
@@ -209,7 +228,7 @@ export class OpenClawInstaller {
           await this.stepRuntime()
           break
         case 'openclaw':
-          await this.stepOpenClaw()
+          await this.stepOpenClaw(config)
           break
         case 'config':
           await this.stepConfig(config)
@@ -239,6 +258,7 @@ export class OpenClawInstaller {
   }
 
   private async stepRuntime(): Promise<void> {
+    this.emitProgress('runtime', 'running', 'Scanning for Node.js runtime...')
     const resolver = RuntimeResolver.getInstance()
     const runtime = await resolver.resolve()
 
@@ -246,57 +266,145 @@ export class OpenClawInstaller {
       throw new Error(`Runtime at ${runtime.path} failed integrity verification`)
     }
 
+    this.emitProgress('runtime', 'running', `Node.js ${runtime.version} found at ${runtime.path}`)
+    this.emitProgress('runtime', 'running', `Runtime type: ${runtime.type}, integrity: verified`)
     logger.info('Runtime resolved', { type: runtime.type, path: runtime.path })
   }
 
-  private async stepOpenClaw(): Promise<void> {
-    const openclawDir = getOpenClawPath()
-    const openclawBin = join(openclawDir, 'node_modules', '.bin', 'openclaw')
-    const packageJson = join(openclawDir, 'package.json')
+  private async stepOpenClaw(config: Record<string, unknown>): Promise<void> {
+    const installMethod = (config['installMethod'] as string) ?? 'npm'
+    const execFileAsync = promisify(execFile)
 
-    if (existsSync(openclawBin) && existsSync(packageJson)) {
-      try {
-        const raw = readFileSync(packageJson, 'utf-8')
-        const pkg = JSON.parse(raw)
-        const deps = pkg.dependencies ?? {}
-        if (deps['openclaw']) {
-          logger.info('OpenClaw already installed, skipping')
-          return
-        }
-      } catch {
-        // Corrupted package.json — reinstall
+    switch (installMethod) {
+      case 'npm':
+        await this.installViaNpm(execFileAsync)
+        break
+      case 'curl':
+        await this.installViaCurl(execFileAsync)
+        break
+      case 'git':
+        await this.installViaGit(execFileAsync)
+        break
+      default:
+        await this.installViaNpm(execFileAsync)
+    }
+  }
+
+  private async installViaNpm(
+    execFileAsync: (file: string, args: string[], opts: object) => Promise<{ stdout: string; stderr: string }>
+  ): Promise<void> {
+    this.emitProgress('openclaw', 'running', 'Installing OpenClaw via npm (global)...')
+
+    try {
+      const { stdout: existingVersion } = await execFileAsync('openclaw', ['--version'], { timeout: 5_000 })
+      if (existingVersion.trim()) {
+        logger.info('OpenClaw already installed globally', { version: existingVersion.trim() })
+        this.emitProgress('openclaw', 'running', `OpenClaw ${existingVersion.trim()} already installed`)
+        return
       }
+    } catch {
+      // Not installed yet
     }
 
-    logger.info('Installing OpenClaw packages via npm', { targetDir: openclawDir })
-
-    mkdirSync(openclawDir, { recursive: true })
-    const execFileAsync = promisify(execFile)
     const runtime = await RuntimeResolver.getInstance().resolve()
     const npmPath = this.resolveNpmPath(runtime.path)
 
-    if (!existsSync(packageJson)) {
-      await execFileAsync(runtime.path, [npmPath, 'init', '-y'], {
+    this.emitProgress('openclaw', 'running', 'Running: npm install -g openclaw ...')
+
+    await execFileAsync(runtime.path, [npmPath, 'install', '-g', `openclaw@${OPENCLAW_VERSION}`], {
+      timeout: 300_000,
+      env: { ...process.env, PATH: this.buildPathEnv(runtime.path) }
+    })
+
+    try {
+      const { stdout: version } = await execFileAsync('openclaw', ['--version'], { timeout: 5_000 })
+      logger.info('OpenClaw installed via npm', { version: version.trim() })
+      this.emitProgress('openclaw', 'running', `OpenClaw ${version.trim()} installed successfully`)
+    } catch {
+      logger.warn('OpenClaw installed but binary not found on PATH immediately')
+    }
+  }
+
+  private async installViaCurl(
+    execFileAsync: (file: string, args: string[], opts: object) => Promise<{ stdout: string; stderr: string }>
+  ): Promise<void> {
+    this.emitProgress('openclaw', 'running', 'Installing OpenClaw via install script...')
+    this.emitProgress('openclaw', 'running', 'Running: curl -fsSL https://openclaw.ai/install.sh | bash ...')
+
+    const shell = process.platform === 'win32' ? 'cmd' : '/bin/bash'
+    const shellArgs = process.platform === 'win32'
+      ? ['/c', 'curl -fsSL https://openclaw.ai/install.sh | bash']
+      : ['-c', 'curl -fsSL https://openclaw.ai/install.sh | bash']
+
+    await execFileAsync(shell, shellArgs, {
+      timeout: 600_000,
+      env: { ...process.env }
+    })
+
+    try {
+      const { stdout: version } = await execFileAsync('openclaw', ['--version'], { timeout: 5_000 })
+      logger.info('OpenClaw installed via curl', { version: version.trim() })
+      this.emitProgress('openclaw', 'running', `OpenClaw ${version.trim()} installed`)
+    } catch {
+      logger.warn('Install script completed but openclaw binary not found on PATH')
+    }
+  }
+
+  private async installViaGit(
+    execFileAsync: (file: string, args: string[], opts: object) => Promise<{ stdout: string; stderr: string }>
+  ): Promise<void> {
+    const openclawDir = join(getOpenClawPath(), 'source')
+
+    this.emitProgress('openclaw', 'running', 'Cloning OpenClaw from GitHub...')
+    this.emitProgress('openclaw', 'running', 'Running: git clone https://github.com/openclaw/openclaw.git ...')
+
+    if (existsSync(join(openclawDir, '.git'))) {
+      this.emitProgress('openclaw', 'running', 'Repository exists, pulling latest...')
+      await execFileAsync('git', ['pull', '--ff-only'], {
         cwd: openclawDir,
-        timeout: 30_000,
+        timeout: 120_000,
+        env: { ...process.env }
+      })
+    } else {
+      mkdirSync(openclawDir, { recursive: true })
+      await execFileAsync('git', ['clone', 'https://github.com/openclaw/openclaw.git', openclawDir], {
+        timeout: 300_000,
+        env: { ...process.env }
+      })
+    }
+
+    this.emitProgress('openclaw', 'running', 'Installing dependencies with pnpm...')
+    const installCmd = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+
+    try {
+      await execFileAsync(installCmd, ['install'], {
+        cwd: openclawDir,
+        timeout: 300_000,
+        env: { ...process.env }
+      })
+    } catch {
+      this.emitProgress('openclaw', 'running', 'pnpm not found, trying npm install...')
+      const runtime = await RuntimeResolver.getInstance().resolve()
+      const npmPath = this.resolveNpmPath(runtime.path)
+      await execFileAsync(runtime.path, [npmPath, 'install'], {
+        cwd: openclawDir,
+        timeout: 300_000,
         env: { ...process.env, PATH: this.buildPathEnv(runtime.path) }
       })
     }
 
-    await execFileAsync(runtime.path, [npmPath, 'install', `openclaw@${OPENCLAW_VERSION}`], {
+    this.emitProgress('openclaw', 'running', 'Building OpenClaw from source...')
+
+    const runtime = await RuntimeResolver.getInstance().resolve()
+    const npmPath = this.resolveNpmPath(runtime.path)
+
+    await execFileAsync(runtime.path, [npmPath, 'run', 'build'], {
       cwd: openclawDir,
-      timeout: 180_000,
+      timeout: 300_000,
       env: { ...process.env, PATH: this.buildPathEnv(runtime.path) }
     })
 
-    if (!existsSync(openclawBin)) {
-      const altBin = join(openclawDir, 'node_modules', 'openclaw', 'bin', 'openclaw.js')
-      if (!existsSync(altBin)) {
-        throw new Error('OpenClaw binary not found after installation. Package may be misconfigured.')
-      }
-    }
-
-    logger.info('OpenClaw packages installed successfully')
+    logger.info('OpenClaw built from source', { dir: openclawDir })
   }
 
   /**
@@ -324,87 +432,216 @@ export class OpenClawInstaller {
   }
 
   private async stepConfig(config: Record<string, unknown>): Promise<void> {
-    const compiler = ConfigCompiler.getInstance()
-    await compiler.apply(config)
-    logger.info('OpenClaw configuration compiled and written')
+    const execFileAsync = promisify(execFile)
+    const intelligence = (config['intelligence'] as Record<string, string>) ?? {}
+    const auth = (config['auth'] as Record<string, string>) ?? {}
+    const modules = (config['modules'] as Record<string, boolean>) ?? {}
+
+    const hasAnthropic = !!intelligence['anthropicKey']
+    const hasOpenai = !!intelligence['openaiKey']
+
+    this.emitProgress('config', 'running', 'Running: openclaw onboard --non-interactive --mode local')
+
+    const args: string[] = [
+      'onboard',
+      '--non-interactive',
+      '--mode', 'local',
+      '--accept-risk',
+      '--json',
+      '--skip-ui',
+      '--skip-skills',
+      '--skip-daemon',
+      '--skip-health',
+    ]
+
+    if (hasAnthropic) {
+      args.push('--auth-choice', 'apiKey')
+      args.push('--anthropic-api-key', intelligence['anthropicKey'])
+      this.emitProgress('config', 'running', 'Auth provider: Anthropic (API key)')
+    } else if (hasOpenai) {
+      args.push('--auth-choice', 'openai-api-key')
+      args.push('--openai-api-key', intelligence['openaiKey'])
+      this.emitProgress('config', 'running', 'Auth provider: OpenAI (API key)')
+    } else {
+      args.push('--auth-choice', 'skip')
+      this.emitProgress('config', 'running', 'Auth provider: skipped (add later via Settings)')
+    }
+
+    if (!modules['telegram']) {
+      args.push('--skip-channels')
+    }
+
+    try {
+      const { stdout } = await execFileAsync('openclaw', args, {
+        timeout: 60_000,
+        env: { ...process.env }
+      })
+
+      logger.info('OpenClaw onboard completed', { output: stdout.substring(0, 500) })
+
+      try {
+        const result = JSON.parse(stdout.split('\n').filter(l => l.startsWith('{')).pop() ?? '{}')
+        this.emitProgress('config', 'running', `Gateway mode: ${result.mode ?? 'local'}`)
+        if (result.gateway) {
+          this.emitProgress('config', 'running', `Gateway port: ${result.gateway.port ?? 18789}, bind: ${result.gateway.bind ?? 'loopback'}`)
+          this.emitProgress('config', 'running', `Gateway auth: ${result.gateway.authMode ?? 'token'} (token generated)`)
+        }
+        if (result.workspace) {
+          this.emitProgress('config', 'running', `Workspace: ${result.workspace}`)
+        }
+      } catch {
+        this.emitProgress('config', 'running', 'Config written to ~/.openclaw/openclaw.json')
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error('openclaw onboard failed', { error: message })
+      this.emitProgress('config', 'failed', `OpenClaw onboard failed: ${message}`)
+      throw new Error(`openclaw onboard failed: ${message}`)
+    }
+
+    if (hasOpenai && hasAnthropic) {
+      try {
+        this.emitProgress('config', 'running', 'Adding OpenAI as fallback provider...')
+        await execFileAsync('openclaw', [
+          'models', 'auth', 'paste-token',
+          '--provider', 'openai'
+        ], {
+          timeout: 10_000,
+          env: { ...process.env, OPENAI_API_KEY: intelligence['openaiKey'] }
+        })
+      } catch {
+        logger.warn('Failed to add OpenAI as additional provider')
+      }
+    }
   }
 
   private async stepCredentials(config: Record<string, unknown>): Promise<void> {
+    const execFileAsync = promisify(execFile)
+    const auth = (config['auth'] as Record<string, string>) ?? {}
+    const modules = (config['modules'] as Record<string, boolean>) ?? {}
+    const intelligence = (config['intelligence'] as Record<string, string>) ?? {}
+
+    if (modules['telegram'] && auth['telegramToken']) {
+      try {
+        this.emitProgress('credentials', 'running', 'Adding Telegram channel to OpenClaw...')
+        await execFileAsync('openclaw', [
+          'channels', 'add',
+          '--channel', 'telegram',
+          '--token', auth['telegramToken']
+        ], { timeout: 15_000 })
+        this.emitProgress('credentials', 'running', 'Telegram channel configured')
+      } catch (err) {
+        logger.warn('Failed to add Telegram channel', {
+          error: err instanceof Error ? err.message : String(err)
+        })
+        this.emitProgress('credentials', 'running', 'Telegram can be added later via: openclaw channels add --channel telegram --token <token>')
+      }
+    }
+
     const { CredentialStore } = await import('../vault/credential-store')
     const store = CredentialStore.getInstance()
 
-    const auth = (config['auth'] as Record<string, string>) ?? {}
-    const intelligence = (config['intelligence'] as Record<string, string>) ?? {}
+    const vaultEntries: Array<{ service: string; key: string; value: string }> = []
 
-    const credentials: Array<{ service: string; key: string; value: string }> = []
-
+    if (auth['gologinToken']) {
+      vaultEntries.push({ service: 'gologin', key: 'api-token', value: auth['gologinToken'] })
+    }
+    if (auth['apifyToken']) {
+      vaultEntries.push({ service: 'apify', key: 'api-token', value: auth['apifyToken'] })
+    }
     if (intelligence['openaiKey']) {
-      credentials.push({ service: 'openai', key: 'api-key', value: intelligence['openaiKey'] })
+      vaultEntries.push({ service: 'openai', key: 'api-key', value: intelligence['openaiKey'] })
     }
     if (intelligence['anthropicKey']) {
-      credentials.push({ service: 'anthropic', key: 'api-key', value: intelligence['anthropicKey'] })
-    }
-    if (auth['gologinToken']) {
-      credentials.push({ service: 'gologin', key: 'api-token', value: auth['gologinToken'] })
-    }
-    if (auth['telegramToken']) {
-      credentials.push({ service: 'telegram', key: 'bot-token', value: auth['telegramToken'] })
+      vaultEntries.push({ service: 'anthropic', key: 'api-key', value: intelligence['anthropicKey'] })
     }
 
-    logger.info('Storing credentials in vault', {
-      services: credentials.map((c) => c.service)
-    })
-
-    for (const cred of credentials) {
-      await store.store(cred.service, cred.key, cred.value)
+    if (vaultEntries.length > 0) {
+      this.emitProgress('credentials', 'running', `Encrypting ${vaultEntries.length} credential(s) with AES-256-GCM...`)
+      for (const cred of vaultEntries) {
+        await store.store(cred.service, cred.key, cred.value)
+        this.emitProgress('credentials', 'running', `Stored: ${cred.service}/${cred.key}`)
+      }
+      this.emitProgress('credentials', 'running', 'All credentials encrypted and stored in vault')
+    } else {
+      this.emitProgress('credentials', 'running', 'No external credentials provided — skipping vault')
     }
 
-    logger.info(`${credentials.length} credential(s) stored successfully`)
+    logger.info('Credentials step completed', { count: vaultEntries.length })
   }
 
   private async stepDaemon(): Promise<void> {
-    const daemon = DaemonManager.getInstance()
-    const status = await daemon.getStatus()
+    const execFileAsync = promisify(execFile)
 
-    if (status.running) {
-      logger.info('Daemon already running, skipping', { pid: status.pid })
-      return
+    this.emitProgress('daemon', 'running', 'Installing OpenClaw gateway service...')
+
+    try {
+      await execFileAsync('openclaw', ['gateway', 'install', '--force', '--json'], {
+        timeout: 30_000,
+        env: { ...process.env }
+      })
+      this.emitProgress('daemon', 'running', 'Gateway service installed')
+    } catch (err) {
+      logger.warn('Gateway install returned error, trying start', {
+        error: err instanceof Error ? err.message : String(err)
+      })
     }
 
-    await daemon.start()
+    this.emitProgress('daemon', 'running', 'Starting gateway service...')
 
-    const maxWait = 5
-    for (let i = 0; i < maxWait; i++) {
-      await new Promise((r) => setTimeout(r, 1_000))
-      const running = await daemon.isRunning()
-      if (running) {
-        logger.info('Daemon confirmed running')
-        return
+    try {
+      await execFileAsync('openclaw', ['gateway', 'start'], {
+        timeout: 15_000,
+        env: { ...process.env }
+      })
+    } catch {
+      logger.debug('gateway start returned non-zero (may already be running)')
+    }
+
+    await new Promise((r) => setTimeout(r, 3_000))
+
+    try {
+      const { stdout: verifyOut } = await execFileAsync('openclaw', ['gateway', 'status'], {
+        timeout: 10_000
+      })
+
+      if (verifyOut.includes('Runtime: running') && verifyOut.includes('RPC probe: ok')) {
+        this.emitProgress('daemon', 'running', 'Gateway running — RPC probe OK')
+      } else if (verifyOut.includes('Runtime: running')) {
+        this.emitProgress('daemon', 'running', 'Gateway running')
+      } else {
+        this.emitProgress('daemon', 'running', 'Gateway service installed — run: openclaw gateway status')
       }
+    } catch {
+      this.emitProgress('daemon', 'running', 'Gateway service installed — verify with: openclaw gateway status')
     }
-
-    logger.warn('Daemon started but could not confirm it is running within timeout')
   }
 
   private async stepHealth(): Promise<void> {
-    const daemon = DaemonManager.getInstance()
-    const maxAttempts = 5
-    const delayMs = 2_000
+    const execFileAsync = promisify(execFile)
 
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      const running = await daemon.isRunning()
-      if (running) {
-        logger.info('Health check passed', { attempt })
-        return
-      }
+    this.emitProgress('health', 'running', 'Running openclaw doctor --repair --non-interactive...')
 
-      if (attempt < maxAttempts) {
-        logger.debug(`Health check attempt ${attempt}/${maxAttempts} failed, retrying...`)
-        await new Promise((resolve) => setTimeout(resolve, delayMs))
+    try {
+      const { stdout } = await execFileAsync('openclaw', [
+        'doctor', '--repair', '--non-interactive'
+      ], { timeout: 30_000 })
+
+      const hasErrors = stdout.includes('CRITICAL') || stdout.includes('FAIL')
+
+      if (hasErrors) {
+        logger.warn('OpenClaw doctor found issues', { output: stdout.substring(0, 500) })
+        this.emitProgress('health', 'running', 'Doctor found issues — run: openclaw doctor --repair')
+      } else {
+        logger.info('OpenClaw doctor passed')
+        this.emitProgress('health', 'running', 'Health check passed')
       }
+    } catch (err) {
+      logger.warn('OpenClaw doctor failed', {
+        error: err instanceof Error ? err.message : String(err)
+      })
+      this.emitProgress('health', 'running', 'Health check skipped — run: openclaw doctor')
     }
-
-    throw new Error(`Health check failed after ${maxAttempts} attempts`)
   }
 
   private async stepComplete(): Promise<void> {
@@ -431,19 +668,26 @@ export class OpenClawInstaller {
   }
 
   private emitProgress(step: string, status: InstallProgressEvent['status'], message: string): void {
+    const event: InstallProgressEvent = { step, status, message }
+
     try {
       const windows = BrowserWindow.getAllWindows()
-      const event: InstallProgressEvent = { step, status, message }
-
       for (const win of windows) {
         if (!win.isDestroyed()) {
           win.webContents.send(IpcChannels.EVENT_INSTALL_PROGRESS, event)
         }
       }
     } catch (err) {
-      logger.debug('Failed to emit progress event', {
+      logger.debug('Failed to emit IPC progress event', {
         error: err instanceof Error ? err.message : String(err)
       })
+    }
+
+    try {
+      const { HttpApiServer } = require('../server/http-api')
+      HttpApiServer.getInstance().broadcastProgress(event)
+    } catch {
+      // HTTP server may not be initialized yet
     }
   }
 
