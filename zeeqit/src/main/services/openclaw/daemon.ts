@@ -3,6 +3,7 @@ import { join } from 'path'
 import { existsSync, readFileSync } from 'fs'
 import { LogRing } from '../diagnostics/log-ring'
 import { getOpenClawPath } from '../platform/app-paths'
+import { RuntimeResolver } from './runtime-resolver'
 import type { DaemonStatus } from './types'
 
 const logger = LogRing.getInstance()
@@ -47,6 +48,16 @@ export class DaemonManager {
     try {
       logger.info('Starting OpenClaw daemon')
       const adapter = await this.getPlatformAdapter()
+
+      const installed = await adapter.isInstalled()
+      if (!installed) {
+        logger.info('Daemon service not installed, installing first')
+        const runtime = await RuntimeResolver.getInstance().resolve()
+        const openclawPath = this.resolveOpenClawEntryPoint()
+        await adapter.install(runtime.path, openclawPath)
+        logger.info('Daemon service installed')
+      }
+
       await adapter.start()
       this.startTime = new Date()
       logger.info('OpenClaw daemon started')
@@ -56,6 +67,31 @@ export class DaemonManager {
       })
       throw err
     }
+  }
+
+  /**
+   * Resolves the OpenClaw entry point binary or script path.
+   * Checks for the npm .bin link first, then the package's own bin script.
+   */
+  private resolveOpenClawEntryPoint(): string {
+    const openclawDir = getOpenClawPath()
+    const candidates = [
+      join(openclawDir, 'node_modules', '.bin', 'openclaw'),
+      join(openclawDir, 'node_modules', 'openclaw', 'bin', 'openclaw.js'),
+      join(openclawDir, 'node_modules', 'openclaw', 'dist', 'index.js'),
+    ]
+
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) {
+        logger.debug('Resolved OpenClaw entry point', { path: candidate })
+        return candidate
+      }
+    }
+
+    throw new Error(
+      `OpenClaw entry point not found. Checked: ${candidates.join(', ')}. ` +
+      'Run the installer first to install OpenClaw packages.'
+    )
   }
 
   /**

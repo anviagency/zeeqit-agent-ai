@@ -251,25 +251,76 @@ export class OpenClawInstaller {
 
   private async stepOpenClaw(): Promise<void> {
     const openclawDir = getOpenClawPath()
+    const openclawBin = join(openclawDir, 'node_modules', '.bin', 'openclaw')
     const packageJson = join(openclawDir, 'package.json')
 
-    if (existsSync(packageJson)) {
-      const raw = readFileSync(packageJson, 'utf-8')
-      const pkg = JSON.parse(raw)
-      if (pkg.version === OPENCLAW_VERSION) {
-        logger.info('OpenClaw already installed at correct version, skipping')
-        return
+    if (existsSync(openclawBin) && existsSync(packageJson)) {
+      try {
+        const raw = readFileSync(packageJson, 'utf-8')
+        const pkg = JSON.parse(raw)
+        const deps = pkg.dependencies ?? {}
+        if (deps['openclaw']) {
+          logger.info('OpenClaw already installed, skipping')
+          return
+        }
+      } catch {
+        // Corrupted package.json — reinstall
       }
     }
 
     logger.info('Installing OpenClaw packages via npm', { targetDir: openclawDir })
 
+    mkdirSync(openclawDir, { recursive: true })
     const execFileAsync = promisify(execFile)
+    const runtime = await RuntimeResolver.getInstance().resolve()
+    const npmPath = this.resolveNpmPath(runtime.path)
 
-    await execFileAsync('npm', ['init', '-y'], { cwd: openclawDir, timeout: 30_000 })
-    await execFileAsync('npm', ['install'], { cwd: openclawDir, timeout: 120_000 })
+    if (!existsSync(packageJson)) {
+      await execFileAsync(runtime.path, [npmPath, 'init', '-y'], {
+        cwd: openclawDir,
+        timeout: 30_000,
+        env: { ...process.env, PATH: this.buildPathEnv(runtime.path) }
+      })
+    }
 
-    logger.info('OpenClaw packages installed')
+    await execFileAsync(runtime.path, [npmPath, 'install', `openclaw@${OPENCLAW_VERSION}`], {
+      cwd: openclawDir,
+      timeout: 180_000,
+      env: { ...process.env, PATH: this.buildPathEnv(runtime.path) }
+    })
+
+    if (!existsSync(openclawBin)) {
+      const altBin = join(openclawDir, 'node_modules', 'openclaw', 'bin', 'openclaw.js')
+      if (!existsSync(altBin)) {
+        throw new Error('OpenClaw binary not found after installation. Package may be misconfigured.')
+      }
+    }
+
+    logger.info('OpenClaw packages installed successfully')
+  }
+
+  /**
+   * Resolves the npm CLI script path relative to a given Node.js binary.
+   * Falls back to global 'npm' if the co-located npm is not found.
+   */
+  private resolveNpmPath(nodePath: string): string {
+    const nodeDir = join(nodePath, '..')
+    const candidates = [
+      join(nodeDir, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+      join(nodeDir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'),
+    ]
+
+    for (const candidate of candidates) {
+      if (existsSync(candidate)) return candidate
+    }
+
+    return require.resolve('npm/bin/npm-cli.js')
+  }
+
+  private buildPathEnv(nodePath: string): string {
+    const nodeDir = join(nodePath, '..')
+    const currentPath = process.env['PATH'] ?? ''
+    return `${nodeDir}:${currentPath}`
   }
 
   private async stepConfig(config: Record<string, unknown>): Promise<void> {
@@ -279,12 +330,36 @@ export class OpenClawInstaller {
   }
 
   private async stepCredentials(config: Record<string, unknown>): Promise<void> {
+    const { CredentialStore } = await import('../vault/credential-store')
+    const store = CredentialStore.getInstance()
+
+    const auth = (config['auth'] as Record<string, string>) ?? {}
+    const intelligence = (config['intelligence'] as Record<string, string>) ?? {}
+
+    const credentials: Array<{ service: string; key: string; value: string }> = []
+
+    if (intelligence['openaiKey']) {
+      credentials.push({ service: 'openai', key: 'api-key', value: intelligence['openaiKey'] })
+    }
+    if (intelligence['anthropicKey']) {
+      credentials.push({ service: 'anthropic', key: 'api-key', value: intelligence['anthropicKey'] })
+    }
+    if (auth['gologinToken']) {
+      credentials.push({ service: 'gologin', key: 'api-token', value: auth['gologinToken'] })
+    }
+    if (auth['telegramToken']) {
+      credentials.push({ service: 'telegram', key: 'bot-token', value: auth['telegramToken'] })
+    }
+
     logger.info('Storing credentials in vault', {
-      services: Object.keys((config['credentials'] as Record<string, unknown>) ?? {})
+      services: credentials.map((c) => c.service)
     })
-    // Credential storage is delegated to the vault service (CredentialStore)
-    // which uses keytar for OS-level secure storage.
-    // The actual vault write happens when the vault service is implemented.
+
+    for (const cred of credentials) {
+      await store.store(cred.service, cred.key, cred.value)
+    }
+
+    logger.info(`${credentials.length} credential(s) stored successfully`)
   }
 
   private async stepDaemon(): Promise<void> {
@@ -292,12 +367,23 @@ export class OpenClawInstaller {
     const status = await daemon.getStatus()
 
     if (status.running) {
-      logger.info('Daemon already running, skipping install', { pid: status.pid })
+      logger.info('Daemon already running, skipping', { pid: status.pid })
       return
     }
 
     await daemon.start()
-    logger.info('Daemon started successfully')
+
+    const maxWait = 5
+    for (let i = 0; i < maxWait; i++) {
+      await new Promise((r) => setTimeout(r, 1_000))
+      const running = await daemon.isRunning()
+      if (running) {
+        logger.info('Daemon confirmed running')
+        return
+      }
+    }
+
+    logger.warn('Daemon started but could not confirm it is running within timeout')
   }
 
   private async stepHealth(): Promise<void> {

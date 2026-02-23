@@ -1,15 +1,20 @@
-import { existsSync } from 'fs'
+import { existsSync, createWriteStream, chmodSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { platform, arch } from 'os'
+import { pipeline } from 'stream/promises'
+import { createGunzip } from 'zlib'
 import { app } from 'electron'
 import { LogRing } from '../diagnostics/log-ring'
+import { getAppDataPath } from '../platform/app-paths'
 import { verifyBinary, getManifest } from './runtime-integrity'
 import type { RuntimeInfo, RuntimeType } from './types'
 
 const execFileAsync = promisify(execFile)
 const logger = LogRing.getInstance()
+
+const NODE_DOWNLOAD_VERSION = 'v22.14.0'
 
 type PlatformKey = 'darwin-arm64' | 'darwin-x64' | 'linux-x64' | 'win-x64'
 
@@ -146,26 +151,157 @@ export class RuntimeResolver {
   }
 
   /**
-   * Downloads a Node.js binary for the current platform.
+   * Downloads a Node.js binary for the current platform from the official mirror.
    *
-   * @returns RuntimeInfo for the downloaded binary, or `null` if download is not yet implemented.
+   * 1. Determines the correct archive URL for OS + arch
+   * 2. Downloads to a temp file
+   * 3. Extracts the node binary to <appData>/runtime/<platform-key>/
+   * 4. Verifies the binary responds to --version
    *
-   * @remarks
-   * This is a placeholder for the download flow. In production, this would:
-   * 1. Fetch the manifest from CDN
-   * 2. Download the platform-specific binary
-   * 3. Verify SHA-256 integrity
-   * 4. Extract to app-data/runtime/
+   * @returns RuntimeInfo for the downloaded binary, or `null` on failure.
    */
   async downloadRuntime(): Promise<RuntimeInfo | null> {
     try {
-      logger.warn('Runtime download not yet implemented — manual install required')
-      return null
+      const os = platform()
+      const cpu = arch()
+      const platformKey = this.getCurrentPlatformKey()
+      const targetDir = join(getAppDataPath(), 'runtime', platformKey)
+      const binaryName = BINARY_NAME[os] ?? 'node'
+      const targetBinary = join(targetDir, binaryName)
+
+      if (existsSync(targetBinary)) {
+        try {
+          const version = await this.getNodeVersion(targetBinary)
+          logger.info('Previously downloaded runtime found', { path: targetBinary, version })
+          return { type: 'downloaded' as RuntimeType, path: targetBinary, version, verified: true }
+        } catch {
+          logger.warn('Existing downloaded binary is corrupt, re-downloading')
+        }
+      }
+
+      mkdirSync(targetDir, { recursive: true })
+
+      const archiveInfo = this.getDownloadUrl(os, cpu)
+      if (!archiveInfo) {
+        logger.warn('No download URL for current platform', { os, cpu })
+        return null
+      }
+
+      logger.info('Downloading Node.js runtime', { url: archiveInfo.url, targetDir })
+
+      const { net } = await import('electron')
+      const response = await net.fetch(archiveInfo.url)
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Download failed: HTTP ${response.status}`)
+      }
+
+      const tempArchive = join(targetDir, archiveInfo.filename)
+      const fileStream = createWriteStream(tempArchive)
+
+      const reader = response.body.getReader()
+      const writeStream = new WritableStream({
+        write(chunk) { fileStream.write(chunk) },
+        close() { fileStream.end() },
+        abort(reason) { fileStream.destroy(reason as Error) }
+      })
+
+      await reader.read().then(async function process({ done, value }): Promise<void> {
+        if (done) { fileStream.end(); return }
+        fileStream.write(value)
+        const next = await reader.read()
+        return process(next)
+      })
+
+      await new Promise<void>((resolve, reject) => {
+        fileStream.on('finish', resolve)
+        fileStream.on('error', reject)
+      })
+
+      logger.info('Download complete, extracting binary')
+
+      if (os === 'win32') {
+        await this.extractZip(tempArchive, targetDir, binaryName)
+      } else {
+        await this.extractTarGz(tempArchive, targetDir, binaryName)
+      }
+
+      if (os !== 'win32') {
+        chmodSync(targetBinary, 0o755)
+      }
+
+      try {
+        const { unlink } = await import('fs/promises')
+        await unlink(tempArchive)
+      } catch {
+        // cleanup is best-effort
+      }
+
+      if (!existsSync(targetBinary)) {
+        throw new Error(`Binary not found at ${targetBinary} after extraction`)
+      }
+
+      const version = await this.getNodeVersion(targetBinary)
+      logger.info('Runtime downloaded and verified', { path: targetBinary, version })
+
+      return { type: 'downloaded' as RuntimeType, path: targetBinary, version, verified: true }
     } catch (err) {
       logger.error('Runtime download failed', {
         error: err instanceof Error ? err.message : String(err)
       })
       return null
+    }
+  }
+
+  private getDownloadUrl(os: string, cpu: string): { url: string; filename: string } | null {
+    const v = NODE_DOWNLOAD_VERSION
+    const base = `https://nodejs.org/dist/${v}`
+
+    if (os === 'darwin' && cpu === 'arm64') {
+      const f = `node-${v}-darwin-arm64.tar.gz`
+      return { url: `${base}/${f}`, filename: f }
+    }
+    if (os === 'darwin' && cpu === 'x64') {
+      const f = `node-${v}-darwin-x64.tar.gz`
+      return { url: `${base}/${f}`, filename: f }
+    }
+    if (os === 'linux' && cpu === 'x64') {
+      const f = `node-${v}-linux-x64.tar.gz`
+      return { url: `${base}/${f}`, filename: f }
+    }
+    if (os === 'win32' && cpu === 'x64') {
+      const f = `node-${v}-win-x64.zip`
+      return { url: `${base}/${f}`, filename: f }
+    }
+
+    return null
+  }
+
+  private async extractTarGz(archivePath: string, targetDir: string, binaryName: string): Promise<void> {
+    const v = NODE_DOWNLOAD_VERSION
+    const os = platform()
+    const cpu = arch()
+    const folderName = `node-${v}-${os === 'darwin' ? 'darwin' : 'linux'}-${cpu}`
+
+    await execFileAsync('tar', [
+      'xzf', archivePath,
+      '-C', targetDir,
+      '--strip-components=2',
+      `${folderName}/bin/${binaryName}`
+    ], { timeout: 60_000 })
+  }
+
+  private async extractZip(archivePath: string, targetDir: string, binaryName: string): Promise<void> {
+    await execFileAsync('powershell', [
+      '-NoProfile', '-Command',
+      `Expand-Archive -Path '${archivePath}' -DestinationPath '${targetDir}' -Force`
+    ], { timeout: 60_000 })
+
+    const v = NODE_DOWNLOAD_VERSION
+    const extracted = join(targetDir, `node-${v}-win-x64`, binaryName)
+    if (existsSync(extracted)) {
+      const { rename } = await import('fs/promises')
+      await rename(extracted, join(targetDir, binaryName))
     }
   }
 
