@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { api } from '@/api'
 
@@ -12,35 +12,38 @@ interface Integration {
   icon: React.ReactNode
   category: string
   configKey?: string
+  /** Vault service name to check for credential presence. */
+  vaultService?: string
 }
 
-const INTEGRATIONS: Integration[] = [
+/** Static integration definitions. Status is derived at runtime from vault. */
+const INTEGRATION_DEFS: Omit<Integration, 'status'>[] = [
   // Messaging Channels
   {
     id: 'telegram',
     name: 'Telegram',
     description: 'Official Bot API integration for direct agent communication and alerts.',
-    status: 'configured',
     category: 'Messaging Channels',
     configKey: 'channels.telegram',
+    vaultService: 'telegram',
     icon: <MessageIcon />,
   },
   {
     id: 'whatsapp',
     name: 'WhatsApp',
     description: 'Connect via Baileys QR scan for seamless messaging.',
-    status: 'available',
     category: 'Messaging Channels',
     configKey: 'channels.whatsapp',
+    vaultService: 'whatsapp',
     icon: <PhoneIcon />,
   },
   {
     id: 'discord',
     name: 'Discord',
     description: 'Server and DM support for team collaboration and logging.',
-    status: 'available',
     category: 'Messaging Channels',
     configKey: 'channels.discord',
+    vaultService: 'discord',
     icon: <BellIcon />,
   },
 
@@ -49,25 +52,24 @@ const INTEGRATIONS: Integration[] = [
     id: 'github',
     name: 'GitHub',
     description: 'Read repos, manage PRs, and triage issues autonomously.',
-    status: 'available',
     category: 'Dev & Automation',
     configKey: 'tools.github',
+    vaultService: 'github',
     icon: <GithubIcon />,
   },
   {
     id: 'browser-automation',
     name: 'Browser Automation',
     description: 'Playwright + GoLogin engine for interacting with UI-only web applications.',
-    status: 'configured',
     category: 'Dev & Automation',
     configKey: 'tools.browser',
+    vaultService: 'gologin',
     icon: <BrowserIcon />,
   },
   {
     id: 'cron-engine',
     name: 'Cron Engine',
     description: 'Schedule proactive tasks, memory consolidation, and health checks.',
-    status: 'configured',
     category: 'Dev & Automation',
     configKey: 'automation.cron',
     icon: <CalendarIcon />,
@@ -76,9 +78,9 @@ const INTEGRATIONS: Integration[] = [
     id: 'apify',
     name: 'Apify',
     description: 'Cloud-based web scraping actors for structured data extraction at scale.',
-    status: 'configured',
     category: 'Dev & Automation',
     configKey: 'tools.apify',
+    vaultService: 'apify',
     icon: <ExtractIcon />,
   },
 
@@ -87,25 +89,24 @@ const INTEGRATIONS: Integration[] = [
     id: 'openai',
     name: 'OpenAI',
     description: 'GPT-4o & GPT-5-mini models. Currently used as default cheap router.',
-    status: 'configured',
     category: 'LLMs & Intelligence',
     configKey: 'agents.defaults.model.primary',
+    vaultService: 'openai',
     icon: <DollarIcon />,
   },
   {
     id: 'anthropic',
     name: 'Anthropic',
     description: 'Claude 3.5 Sonnet & Opus. Used for high-complexity task escalation.',
-    status: 'configured',
     category: 'LLMs & Intelligence',
     configKey: 'agents.defaults.model.fallbacks',
+    vaultService: 'anthropic',
     icon: <LayersIcon />,
   },
   {
     id: 'ollama',
     name: 'Ollama',
     description: 'Run local, uncensored models on your hardware for free classification.',
-    status: 'available',
     category: 'LLMs & Intelligence',
     configKey: 'agents.defaults.model.local',
     icon: <ShrinkIcon />,
@@ -114,14 +115,14 @@ const INTEGRATIONS: Integration[] = [
     id: 'openrouter',
     name: 'OpenRouter',
     description: 'Unified API gateway for 100+ models with automatic fallback routing.',
-    status: 'available',
     category: 'LLMs & Intelligence',
     configKey: 'agents.defaults.model.openrouter',
+    vaultService: 'openrouter',
     icon: <RouterIcon />,
   },
 ]
 
-const categories = [...new Set(INTEGRATIONS.map((i) => i.category))]
+const categories = [...new Set(INTEGRATION_DEFS.map((i) => i.category))]
 
 const statusLabel: Record<IntegrationStatus, string> = {
   configured: 'Configured',
@@ -131,11 +132,55 @@ const statusLabel: Record<IntegrationStatus, string> = {
 
 /**
  * Integration Store view. Shows all available OpenClaw integrations
- * grouped by category. Configured status reflects actual configuration state.
- * Installing an integration opens the relevant settings in the config.
+ * grouped by category. Configured status is derived from real vault data:
+ * if a credential exists for the service, it shows as 'configured'.
  */
 export function IntegrationStoreView(): React.JSX.Element {
+  const [integrations, setIntegrations] = useState<Integration[]>(() =>
+    INTEGRATION_DEFS.map(def => ({ ...def, status: 'available' as IntegrationStatus }))
+  )
   const [installingId, setInstallingId] = useState<string | null>(null)
+
+  // Fetch vault credentials on mount to derive real status
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const result = await api.vault.list()
+        if (cancelled || !result.success || !result.data) return
+
+        const credentials = result.data as { service: string; label: string }[]
+        const configuredServices = new Set(credentials.map(c => c.service))
+
+        // Also check if cron engine has any cron jobs configured
+        let hasCron = false
+        try {
+          const cronResult = await api.openclawFiles.getCron()
+          if (cronResult.success && cronResult.data) {
+            const cronData = cronResult.data as { jobs?: unknown[] }
+            hasCron = Array.isArray(cronData.jobs) && cronData.jobs.length > 0
+          }
+        } catch { /* ignore */ }
+
+        setIntegrations(
+          INTEGRATION_DEFS.map(def => {
+            let status: IntegrationStatus = 'available'
+            if (def.vaultService && configuredServices.has(def.vaultService)) {
+              status = 'configured'
+            }
+            // Cron engine is 'configured' if any cron jobs exist
+            if (def.id === 'cron-engine' && hasCron) {
+              status = 'configured'
+            }
+            return { ...def, status }
+          })
+        )
+      } catch {
+        // Keep defaults on error
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const handleInstall = useCallback(async (integration: Integration) => {
     if (integration.status === 'coming_soon') return
@@ -150,7 +195,7 @@ export function IntegrationStoreView(): React.JSX.Element {
     } catch {
       // handled by global error boundary
     } finally {
-      setTimeout(() => setInstallingId(null), 800)
+      setInstallingId(null)
     }
   }, [])
 
@@ -178,7 +223,7 @@ export function IntegrationStoreView(): React.JSX.Element {
 
             <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-5">
               <AnimatePresence mode="popLayout">
-                {INTEGRATIONS.filter((i) => i.category === category).map((integration) => (
+                {integrations.filter((i) => i.category === category).map((integration) => (
                   <motion.div
                     key={integration.id}
                     layout

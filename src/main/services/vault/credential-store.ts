@@ -91,6 +91,9 @@ export class CredentialStore {
 
       await this.writeVault(vault)
       this.logger.info(`Credential stored: ${service}/${key}`)
+
+      // Sync to OpenClaw config for services that need it
+      await this.syncToOpenClawConfig(service, key, value)
     } catch (err) {
       this.logger.error(`Failed to store credential ${service}/${key}`, {
         error: err instanceof Error ? err.message : String(err)
@@ -345,6 +348,64 @@ export class CredentialStore {
 
   private async writeVault(vault: CredentialVault): Promise<void> {
     await atomicWriteFile(this.getVaultFilePath(), JSON.stringify(vault, null, 2))
+  }
+
+  /**
+   * Syncs credential changes to the OpenClaw config file for services that
+   * require config-level integration (LLM API keys, Telegram bot token).
+   * Services like gologin/apify stay vault-only.
+   */
+  private async syncToOpenClawConfig(service: string, key: string, value: string): Promise<void> {
+    // Only sync credentials that OpenClaw config needs
+    const CONFIG_SYNC_KEYS = new Set([
+      'anthropic/api-key',
+      'openai/api-key',
+      'telegram/bot-token',
+    ])
+
+    const credKey = `${service}/${key}`
+    if (!CONFIG_SYNC_KEYS.has(credKey)) return
+
+    try {
+      const { join } = await import('path')
+      const { existsSync } = await import('fs')
+      const { getOpenClawPath } = await import('../platform/app-paths')
+      const { atomicWriteFile, atomicReadFile } = await import('../platform/atomic-fs')
+
+      const configPath = join(getOpenClawPath(), 'openclaw.json')
+      if (!existsSync(configPath)) {
+        this.logger.debug('OpenClaw config not found, skipping credential sync')
+        return
+      }
+
+      const raw = await atomicReadFile(configPath)
+      const config = JSON.parse(raw) as Record<string, unknown>
+
+      // Inject credential at the appropriate config path
+      if (credKey === 'anthropic/api-key' || credKey === 'openai/api-key') {
+        const auth = (config['auth'] as Record<string, unknown>) ?? {}
+        const profiles = (auth['profiles'] as Record<string, unknown>) ?? {}
+        const profileKey = credKey === 'anthropic/api-key' ? 'anthropic:default' : 'openai:default'
+        profiles[profileKey] = { key: value }
+        auth['profiles'] = profiles
+        config['auth'] = auth
+      } else if (credKey === 'telegram/bot-token') {
+        const channels = (config['channels'] as Record<string, unknown>) ?? {}
+        const telegram = (channels['telegram'] as Record<string, unknown>) ?? {}
+        telegram['botToken'] = value
+        channels['telegram'] = telegram
+        config['channels'] = channels
+      }
+
+      await atomicWriteFile(configPath, JSON.stringify(config, null, 2))
+      this.logger.info(`Synced credential ${credKey} to OpenClaw config`)
+    } catch (err) {
+      // Non-fatal: credential is in vault, config sync is best-effort
+      this.logger.warn(`Failed to sync credential to OpenClaw config`, {
+        credKey,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
   }
 
   private getVaultFilePath(): string {

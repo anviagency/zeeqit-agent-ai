@@ -612,6 +612,317 @@ export class HttpApiServer {
       }
     })
 
+    // ─── Vault Delete + Rotate ──────────────────────────────
+
+    app.post('/api/vault/delete', async (req, res) => {
+      try {
+        const { CredentialStore } = await import('../services/vault/credential-store')
+        const { service, key } = req.body
+        await CredentialStore.getInstance().delete(service, key)
+        res.json(ok())
+      } catch (err) {
+        res.json({ success: false, error: { code: 'VAULT_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/vault/rotate', async (_req, res) => {
+      try {
+        const { CredentialStore } = await import('../services/vault/credential-store')
+        await CredentialStore.getInstance().rotateKey()
+        res.json(ok())
+      } catch (err) {
+        res.json({ success: false, error: { code: 'VAULT_ERROR', message: String(err) } })
+      }
+    })
+
+    // ─── Gateway Disconnect + RPC ────────────────────────────
+
+    app.post('/api/gateway/disconnect', async (_req, res) => {
+      try {
+        const { GatewayWebSocketClient } = await import('../services/gateway/websocket-client')
+        GatewayWebSocketClient.getInstance().disconnect()
+        res.json(ok())
+      } catch (err) {
+        res.json({ success: false, error: { code: 'GATEWAY_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/gateway/rpc', async (req, res) => {
+      try {
+        const { GatewayRpc } = await import('../services/gateway/rpc')
+        const { method, params } = req.body
+        const result = await GatewayRpc.getInstance().call(method, params)
+        res.json(ok(result))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'GATEWAY_ERROR', message: String(err) } })
+      }
+    })
+
+    // ─── Config Diff / Rollback / Backups ────────────────────
+
+    app.post('/api/config/diff', async (req, res) => {
+      try {
+        const { ConfigCompiler } = await import('../services/openclaw/config-compiler')
+        const diff = await ConfigCompiler.getInstance().diff(req.body)
+        res.json(ok(diff))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'CONFIG_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/config/rollback', async (req, res) => {
+      try {
+        const { ConfigCompiler } = await import('../services/openclaw/config-compiler')
+        await ConfigCompiler.getInstance().rollback(req.body.backupId)
+        res.json(ok())
+      } catch (err) {
+        res.json({ success: false, error: { code: 'CONFIG_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/config/backups', async (_req, res) => {
+      try {
+        const { ConfigBackup } = await import('../services/openclaw/config-backup')
+        const backups = await ConfigBackup.getInstance().listBackups()
+        res.json(ok(backups))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'CONFIG_ERROR', message: String(err) } })
+      }
+    })
+
+    // ─── GoLogin Endpoints ───────────────────────────────────
+
+    app.get('/api/gologin/profiles', async (_req, res) => {
+      try {
+        const { GoLoginService } = await import('../services/gologin/client')
+        const profiles = await GoLoginService.getInstance().listProfiles()
+        res.json(ok(profiles))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'GOLOGIN_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/gologin/launch', async (req, res) => {
+      try {
+        const { GoLoginService } = await import('../services/gologin/client')
+        const cdpUrl = await GoLoginService.getInstance().launchProfile(req.body.profileId)
+        res.json(ok({ cdpUrl }))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'GOLOGIN_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/gologin/stop', async (req, res) => {
+      try {
+        const { GoLoginService } = await import('../services/gologin/client')
+        await GoLoginService.getInstance().stopProfile(req.body.profileId)
+        res.json(ok())
+      } catch (err) {
+        res.json({ success: false, error: { code: 'GOLOGIN_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/gologin/test', async (req, res) => {
+      try {
+        const { GoLoginService } = await import('../services/gologin/client')
+        const result = await GoLoginService.getInstance().testSession(req.body.profileId)
+        res.json(ok(result))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'GOLOGIN_ERROR', message: String(err) } })
+      }
+    })
+
+    // ─── Apify Endpoints ─────────────────────────────────────
+
+    app.get('/api/apify/actors', async (_req, res) => {
+      try {
+        const { ApifyService } = await import('../services/apify/client')
+        const actors = await ApifyService.getInstance().listActors()
+        res.json(ok(actors))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'APIFY_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/apify/run', async (req, res) => {
+      try {
+        const { ApifyService } = await import('../services/apify/client')
+        const { actorId, input } = req.body
+        const runInfo = await ApifyService.getInstance().runActor(actorId, input)
+        res.json(ok(runInfo))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'APIFY_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/apify/status/:runId', async (req, res) => {
+      try {
+        const { ApifyService } = await import('../services/apify/client')
+        const status = await ApifyService.getInstance().getRunStatus(req.params.runId)
+        res.json(ok(status))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'APIFY_ERROR', message: String(err) } })
+      }
+    })
+
+    // ─── Evidence Chain Endpoints ────────────────────────────
+
+    app.get('/api/evidence/chain/:chainId', async (req, res) => {
+      try {
+        const { EvidenceChain } = await import('../services/evidence/chain')
+        const chain = await EvidenceChain.getInstance().getChain(req.params.chainId)
+        res.json(ok(chain))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'EVIDENCE_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/evidence/verify', async (req, res) => {
+      try {
+        const { EvidenceChain } = await import('../services/evidence/chain')
+        const result = await EvidenceChain.getInstance().verify(req.body.chainId)
+        res.json(ok(result))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'EVIDENCE_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/evidence/export', async (req, res) => {
+      try {
+        const { EvidenceChain } = await import('../services/evidence/chain')
+        const exportPath = await EvidenceChain.getInstance().exportChain(req.body.chainId)
+        res.json(ok({ path: exportPath }))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'EVIDENCE_ERROR', message: String(err) } })
+      }
+    })
+
+    // ─── Routing Engine Endpoints ────────────────────────────
+
+    app.post('/api/routing/execute', async (req, res) => {
+      try {
+        const { RoutingEngine } = await import('../services/routing/engine')
+        const result = await RoutingEngine.getInstance().execute(req.body)
+        res.json(ok(result))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'ROUTING_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/routing/config', async (_req, res) => {
+      try {
+        const { RoutingEngine } = await import('../services/routing/engine')
+        const config = RoutingEngine.getInstance().getConfig()
+        res.json(ok(config))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'ROUTING_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/routing/config', async (req, res) => {
+      try {
+        const { RoutingEngine } = await import('../services/routing/engine')
+        RoutingEngine.getInstance().setConfig(req.body)
+        res.json(ok())
+      } catch (err) {
+        res.json({ success: false, error: { code: 'ROUTING_ERROR', message: String(err) } })
+      }
+    })
+
+    // ─── Workflow CRUD + Execute ─────────────────────────────
+
+    app.post('/api/workflow/create', async (req, res) => {
+      try {
+        const { WorkflowExecutor } = await import('../services/workflow/executor')
+        const workflow = await WorkflowExecutor.getInstance().create(req.body)
+        res.json(ok(workflow))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'WORKFLOW_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/workflow/list', async (_req, res) => {
+      try {
+        const { WorkflowExecutor } = await import('../services/workflow/executor')
+        const workflows = await WorkflowExecutor.getInstance().listWorkflows()
+        res.json(ok(workflows))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'WORKFLOW_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/workflow/execute/:id', async (req, res) => {
+      try {
+        const { WorkflowExecutor } = await import('../services/workflow/executor')
+        const result = await WorkflowExecutor.getInstance().execute(req.params.id)
+        res.json(ok(result))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'WORKFLOW_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/workflow/schedule', async (req, res) => {
+      try {
+        const { WorkflowScheduler } = await import('../services/workflow/scheduler')
+        const { workflowId, cron } = req.body
+        WorkflowScheduler.getInstance().schedule(workflowId, cron)
+        res.json(ok())
+      } catch (err) {
+        res.json({ success: false, error: { code: 'WORKFLOW_ERROR', message: String(err) } })
+      }
+    })
+
+    // NOTE: :id wildcard must come after specific workflow routes
+    app.get('/api/workflow/:id', async (req, res) => {
+      try {
+        const { WorkflowExecutor } = await import('../services/workflow/executor')
+        const workflow = await WorkflowExecutor.getInstance().getWorkflow(req.params.id)
+        res.json(ok(workflow))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'WORKFLOW_ERROR', message: String(err) } })
+      }
+    })
+
+    // ─── Diagnostics Export + Daemon Logs ────────────────────
+
+    app.post('/api/diagnostics/export', async (_req, res) => {
+      try {
+        const { createDiagnosticBundle } = await import('../services/diagnostics/bundle')
+        const bundlePath = await createDiagnosticBundle()
+        res.json(ok({ path: bundlePath }))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'DIAGNOSTICS_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/daemon/logs', async (_req, res) => {
+      try {
+        const { readFile } = await import('fs/promises')
+        const { getLogsPath } = await import('../services/platform/app-paths')
+        const { join } = await import('path')
+        const { readdirSync } = await import('fs')
+
+        const logsDir = getLogsPath()
+        const files = readdirSync(logsDir).filter(f => f.endsWith('.log')).sort().reverse()
+        const lines: string[] = []
+
+        for (const file of files.slice(0, 3)) {
+          try {
+            const content = await readFile(join(logsDir, file), 'utf-8')
+            lines.push(...content.split('\n').filter(Boolean).slice(-200))
+          } catch {
+            // skip unreadable files
+          }
+        }
+
+        res.json(ok(lines.slice(-500)))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'DAEMON_ERROR', message: String(err) } })
+      }
+    })
+
+    // ─── Health ──────────────────────────────────────────────
+
     app.get('/api/health', (_req, res) => {
       res.json({ status: 'ok', version: '1.0.0', timestamp: new Date().toISOString() })
     })

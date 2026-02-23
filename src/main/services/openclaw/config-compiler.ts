@@ -190,6 +190,9 @@ export class ConfigCompiler {
 
     const persona = intelligence['persona'] || 'Zeeqit Agent'
 
+    // Vault-injected credentials (populated by syncConfigFromVault)
+    const vaultCreds = (state['_vaultCredentials'] as Record<string, string>) ?? {}
+
     return {
       identity: {
         name: persona,
@@ -208,10 +211,16 @@ export class ConfigCompiler {
           timeoutSeconds: (state['timeoutSeconds'] as number) ?? 600
         }
       },
+      auth: {
+        profiles: {
+          ...(vaultCreds['anthropic/api-key'] ? { 'anthropic:default': { key: vaultCreds['anthropic/api-key'] } } : {}),
+          ...(vaultCreds['openai/api-key'] ? { 'openai:default': { key: vaultCreds['openai/api-key'] } } : {}),
+        },
+      },
       channels: {
         telegram: {
           enabled: modules['telegram'] ?? false,
-          botToken: '',
+          botToken: vaultCreds['telegram/bot-token'] ?? '',
           dmPolicy: 'pairing',
         },
       },
