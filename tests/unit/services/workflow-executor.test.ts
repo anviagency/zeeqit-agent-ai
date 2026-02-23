@@ -13,7 +13,8 @@ vi.mock('fs/promises', () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
   rename: vi.fn().mockResolvedValue(undefined),
   open: vi.fn().mockResolvedValue({ sync: vi.fn(), close: vi.fn() }),
-  unlink: vi.fn().mockResolvedValue(undefined)
+  unlink: vi.fn().mockResolvedValue(undefined),
+  mkdir: vi.fn().mockResolvedValue(undefined)
 }))
 
 vi.mock('proper-lockfile', () => ({
@@ -37,7 +38,8 @@ vi.mock('../../../src/main/services/diagnostics/log-ring', () => ({
 }))
 
 vi.mock('../../../src/main/services/platform/app-paths', () => ({
-  getAppDataPath: () => '/mock/appdata'
+  getAppDataPath: () => '/mock/appdata',
+  getOpenClawPath: () => '/mock/openclaw'
 }))
 
 vi.mock('../../../src/main/services/platform/atomic-fs', () => ({
@@ -45,15 +47,22 @@ vi.mock('../../../src/main/services/platform/atomic-fs', () => ({
   atomicReadFile: vi.fn().mockResolvedValue('{}')
 }))
 
-const mockRouterExecute = vi.fn()
+const { mockExecFile } = vi.hoisted(() => {
+  const mockExecFile = vi.fn()
+  return { mockExecFile }
+})
 
-vi.mock('../../../src/main/services/routing/engine', () => ({
-  RoutingEngine: {
-    getInstance: () => ({
-      execute: mockRouterExecute
-    })
-  }
+vi.mock('child_process', () => ({
+  execFile: mockExecFile
 }))
+
+vi.mock('util', async () => {
+  const actual = await vi.importActual<typeof import('util')>('util')
+  return {
+    ...actual,
+    promisify: () => mockExecFile,
+  }
+})
 
 import { WorkflowExecutor } from '../../../src/main/services/workflow/executor'
 
@@ -70,14 +79,17 @@ describe('WorkflowExecutor', () => {
       const executor = WorkflowExecutor.getInstance()
       const workflow = await executor.create({
         name: 'Test Workflow',
-        targetUrl: 'https://example.com',
-        extractionGoal: 'Extract all prices',
-        mode: 'auto'
+        prompt: 'Search Google and summarize',
+        nodes: [
+          { id: 'n1', type: 'google-search', title: 'Google Search', config: { query: 'AI news' } },
+          { id: 'n2', type: 'ai-summarize', title: 'Summarize', config: {} },
+        ],
       })
 
       expect(workflow.id).toBeDefined()
       expect(workflow.name).toBe('Test Workflow')
-      expect(workflow.targetUrl).toBe('https://example.com')
+      expect(workflow.nodes).toHaveLength(2)
+      expect(workflow.nodes[0].type).toBe('google-search')
       expect(vi.mocked(atomicWriteFile)).toHaveBeenCalled()
     })
 
@@ -87,24 +99,25 @@ describe('WorkflowExecutor', () => {
       await expect(
         executor.create({
           name: '', // empty name
-          targetUrl: 'not-a-url',
-          extractionGoal: ''
         })
       ).rejects.toThrow('Invalid workflow')
     })
   })
 
   describe('execute', () => {
-    it('should delegate to RoutingEngine and return execution result', async () => {
+    it('should run each node through OpenClaw CLI and return result', async () => {
       const { existsSync } = await import('fs')
       const { atomicReadFile } = await import('../../../src/main/services/platform/atomic-fs')
 
       const testWorkflow = {
         id: '550e8400-e29b-41d4-a716-446655440000',
-        name: 'Price Scraper',
-        targetUrl: 'https://example.com/products',
-        extractionGoal: 'Extract prices',
-        mode: 'auto',
+        name: 'Search and Summarize',
+        prompt: 'Search and summarize AI news',
+        nodes: [
+          { id: 'n1', type: 'google-search', title: 'Google Search', desc: '', x: 0, y: 0, icon: '', config: { query: 'AI news' }, missing: false },
+          { id: 'n2', type: 'ai-summarize', title: 'Summarize', desc: '', x: 340, y: 0, icon: '', config: {}, missing: false },
+        ],
+        schedule: null,
         enabled: true,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z'
@@ -113,25 +126,17 @@ describe('WorkflowExecutor', () => {
       vi.mocked(existsSync).mockReturnValue(true)
       vi.mocked(atomicReadFile).mockResolvedValue(JSON.stringify(testWorkflow))
 
-      mockRouterExecute.mockResolvedValue({
-        extraction: { items: [{ price: '9.99' }], itemCount: 1 },
-        validation: { valid: true, summary: 'OK' },
-        evidenceChainId: 'evidence-123'
-      })
+      // Mock openclaw CLI returning JSON results
+      mockExecFile
+        .mockResolvedValueOnce({ stdout: JSON.stringify({ result: 'Search results for AI news' }) })
+        .mockResolvedValueOnce({ stdout: JSON.stringify({ result: 'Summary of AI news' }) })
 
       const executor = WorkflowExecutor.getInstance()
       const result = await executor.execute(testWorkflow.id)
 
       expect(result.status).toBe('completed')
-      expect(result.itemCount).toBe(1)
-      expect(result.evidenceChainId).toBe('evidence-123')
-      expect(mockRouterExecute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          url: testWorkflow.targetUrl,
-          goal: testWorkflow.extractionGoal,
-          mode: testWorkflow.mode
-        })
-      )
+      expect(result.itemCount).toBe(2)
+      expect(mockExecFile).toHaveBeenCalledTimes(2)
     })
 
     it('should return failed status when workflow not found', async () => {
@@ -152,9 +157,11 @@ describe('WorkflowExecutor', () => {
       const testWorkflow = {
         id: '660e8400-e29b-41d4-a716-446655440000',
         name: 'Slow Workflow',
-        targetUrl: 'https://example.com',
-        extractionGoal: 'Extract data',
-        mode: 'auto',
+        prompt: 'Long running task',
+        nodes: [
+          { id: 'n1', type: 'agent', title: 'Long Task', desc: '', x: 0, y: 0, icon: '', config: { prompt: 'wait' }, missing: false },
+        ],
+        schedule: null,
         enabled: true,
         createdAt: '2026-01-01T00:00:00.000Z',
         updatedAt: '2026-01-01T00:00:00.000Z'
@@ -163,8 +170,8 @@ describe('WorkflowExecutor', () => {
       vi.mocked(existsSync).mockReturnValue(true)
       vi.mocked(atomicReadFile).mockResolvedValue(JSON.stringify(testWorkflow))
 
-      // First call never resolves (simulates long-running)
-      mockRouterExecute.mockImplementation(
+      // First call never resolves
+      mockExecFile.mockImplementation(
         () => new Promise(() => {/* never resolves */})
       )
 

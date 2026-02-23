@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { InstallationState } from '@shared/installation-states'
 import type { HealthLightState } from '@shared/ipc-channels'
 
-export type AppView = 'onboarding' | 'skills' | 'store' | 'settings' | 'workflows' | 'cost-analytics' | 'multi-agent' | 'openclaw'
+export type AppView = 'onboarding' | 'store' | 'settings' | 'workflows' | 'cost-analytics' | 'multi-agent' | 'openclaw'
 export type DashboardView = Exclude<AppView, 'onboarding'>
 export type ThemeMode = 'dark' | 'light'
 

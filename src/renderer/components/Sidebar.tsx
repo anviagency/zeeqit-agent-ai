@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { StatusDot } from './ui/StatusDot'
 import { AffiliateLink } from './ui/AffiliateLink'
 
-type NavId = 'skill-library' | 'workflows' | 'cost-analytics' | 'multi-agent' | 'settings'
+type NavId = 'workflows' | 'cost-analytics' | 'multi-agent' | 'settings'
 
 interface SidebarProps {
   activeNav: NavId
@@ -23,7 +23,6 @@ interface NavItem {
 const GOLOGIN_AFFILIATE_URL = 'https://gologin.com/join/zeeqit-IILQREB'
 
 const navItems: NavItem[] = [
-  { id: 'skill-library', label: 'Skill Library', icon: <SkillLibraryIcon /> },
   { id: 'workflows', label: 'Workflows', icon: <WorkflowsIcon /> },
   { id: 'cost-analytics', label: 'Cost Analytics', icon: <CostIcon />, badge: 'P3', group: 'phase3' },
   { id: 'multi-agent', label: 'Multi-Agent', icon: <MultiAgentIcon />, badge: 'P3', group: 'phase3' },

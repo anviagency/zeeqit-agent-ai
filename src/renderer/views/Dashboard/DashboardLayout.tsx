@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import { useAppStore, type DashboardView } from '@/store/app.store'
 import { useGateway } from '@/hooks/useGateway'
 import { TopBar } from '@/components/TopBar'
-import { SkillLibraryView } from '@/views/SkillLibrary/SkillLibraryView'
 import { IntegrationStoreView } from '@/views/IntegrationStore/IntegrationStoreView'
 import { SettingsView } from '@/views/Settings/SettingsView'
 import { WorkflowsView } from '@/views/Workflows/WorkflowsView'
@@ -12,7 +11,6 @@ import { OpenClawView } from '@/views/OpenClaw/OpenClawView'
 import { api } from '@/api'
 
 const viewComponents: Record<DashboardView, React.ComponentType> = {
-  skills: SkillLibraryView,
   store: IntegrationStoreView,
   settings: SettingsView,
   workflows: WorkflowsView,
@@ -47,16 +45,6 @@ const navItems: NavItem[] = [
         <path d="M12 2L2 7l10 5 10-5-10-5z" />
         <path d="M2 17l10 5 10-5" />
         <path d="M2 12l10 5 10-5" />
-      </svg>
-    ),
-  },
-  {
-    id: 'skills',
-    label: 'Skill Library',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <polyline points="16 18 22 12 16 6" />
-        <polyline points="8 6 2 12 8 18" />
       </svg>
     ),
   },

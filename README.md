@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="#install">Getting Started</a> · <a href="#architecture">Architecture</a> · <a href="#onboarding-flow">Onboarding</a> · <a href="#dashboard">Dashboard</a> · <a href="#security-model">Security</a> · <a href="#testing">Testing</a>
+  <a href="#quick-install">Quick Install</a> · <a href="#architecture">Architecture</a> · <a href="#onboarding-flow">Onboarding</a> · <a href="#dashboard">Dashboard</a> · <a href="#security-model">Security</a> · <a href="#testing">Testing</a>
 </p>
 
 ---
@@ -30,7 +30,15 @@ The user never touches CLI, JSON, or terminal. They open the app, configure thei
 
 ---
 
-## Install
+## Quick Install
+
+**One-liner (macOS / Linux):**
+
+```bash
+git clone https://github.com/anviagency/zeeqit-agent-ai.git && cd zeeqit-agent-ai && npm install && npm run dev
+```
+
+**Step by step:**
 
 ```bash
 git clone https://github.com/anviagency/zeeqit-agent-ai.git
@@ -40,6 +48,14 @@ npm run dev
 ```
 
 That's it. The app opens, walks you through a 4-step onboarding wizard, and silently installs everything — including OpenClaw and a Node.js runtime if needed.
+
+### Prerequisites
+
+| Requirement | Version | Check |
+|-------------|---------|-------|
+| **Node.js** | 22+ | `node -v` |
+| **npm** | 10+ | `npm -v` |
+| **Git** | any | `git --version` |
 
 ### Don't have Node.js?
 
@@ -57,6 +73,31 @@ That's it. The app opens, walks you through a 4-step onboarding wizard, and sile
 | Linux | `npm run build:linux` | `.AppImage` / `.deb` in `dist/` |
 | Windows | `npm run build:win` | `.exe` installer in `dist/` |
 
+### Uninstall
+
+To completely remove Zeeqit and OpenClaw:
+
+```bash
+# Stop the gateway daemon
+pkill -f "openclaw-gateway" 2>/dev/null
+
+# Remove launchd agent (macOS)
+launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.gateway.plist 2>/dev/null
+rm -f ~/Library/LaunchAgents/ai.openclaw.gateway.plist
+
+# Remove OpenClaw
+npm uninstall -g openclaw
+rm -rf ~/.openclaw
+
+# Remove Zeeqit data + vault
+rm -rf ~/Library/Application\ Support/Zeeqit   # macOS
+# rm -rf ~/.local/share/zeeqit                  # Linux
+# rm -rf %APPDATA%\Zeeqit                       # Windows
+
+# Remove vault master key from OS keychain (macOS)
+security delete-generic-password -s "zeeqit-vault" 2>/dev/null
+```
+
 ---
 
 ## How It Works
@@ -72,16 +113,20 @@ That's it. The app opens, walks you through a 4-step onboarding wizard, and sile
 │  │   Main Process    │    │     Renderer (React UI)    │ │
 │  │                    │    │                            │ │
 │  │  ┌──────────────┐ │    │  Onboarding Wizard         │ │
-│  │  │  Installer   │ │◄──►│  Dashboard (Topology,      │ │
-│  │  │  + Runtime   │ │IPC │    Skills, Settings,       │ │
-│  │  │  Resolver    │ │    │    Integration Store)      │ │
-│  │  ├──────────────┤ │    │                            │ │
-│  │  │  Credential  │ │    └────────────────────────────┘ │
-│  │  │  Vault       │ │                                   │
-│  │  │  (AES-256)   │ │    ┌────────────────────────────┐ │
-│  │  ├──────────────┤ │    │      Preload Bridge        │ │
-│  │  │  Daemon Mgr  │ │    │  contextBridge + IPC       │ │
-│  │  │  (launchd /  │ │    └────────────────────────────┘ │
+│  │  │  Installer   │ │◄──►│  Dashboard                 │ │
+│  │  │  + Runtime   │ │HTTP│    OpenClaw, Workflows,    │ │
+│  │  │  Resolver    │ │API │    Skills, Integrations,   │ │
+│  │  ├──────────────┤ │    │    Cost Analytics,         │ │
+│  │  │  Credential  │ │    │    Multi-Agent Routing,    │ │
+│  │  │  Vault       │ │    │    Settings                │ │
+│  │  │  (AES-256)   │ │    └────────────────────────────┘ │
+│  │  ├──────────────┤ │                                   │
+│  │  │  HTTP API    │ │    ┌────────────────────────────┐ │
+│  │  │  Server      │ │    │      Preload Bridge        │ │
+│  │  │  (:31311)    │ │    │  contextBridge + IPC       │ │
+│  │  ├──────────────┤ │    └────────────────────────────┘ │
+│  │  │  Daemon Mgr  │ │                                   │
+│  │  │  (launchd /  │ │                                   │
 │  │  │  systemd /   │ │                                   │
 │  │  │  schtasks)   │ │                                   │
 │  │  ├──────────────┤ │                                   │
@@ -98,13 +143,17 @@ That's it. The app opens, walks you through a 4-step onboarding wizard, and sile
          ▼                        ▼
    ~/Library/Application     OS Keychain
    Support/Zeeqit/           (macOS Keychain /
-   ├── openclaw/             Windows DPAPI /
-   │   ├── node_modules/     Linux libsecret)
-   │   └── openclaw.json
-   ├── vault/
-   ├── evidence/
+   ├── vault/                Windows DPAPI /
+   ├── evidence/             Linux libsecret)
    ├── config-history/
+   ├── checkpoints/
    └── logs/
+                             ~/.openclaw/
+                             ├── openclaw.json
+                             ├── agents/
+                             ├── workspace/
+                             ├── cron/
+                             └── logs/
 ```
 
 ---
@@ -128,10 +177,13 @@ After deployment, the dashboard opens automatically.
 
 | View | Description |
 |------|-------------|
-| **Topology** | Live network graph with animated data packets. Click nodes to inspect: Ingress, Controller, Memory, Router/API, Playwright. Real-time via Gateway WebSocket. |
-| **Skill Library** | Browse and edit skill definitions in a split-pane UI. JSON editor with syntax highlighting. |
-| **Integration Store** | Categorized cards for all OpenClaw integrations — Messaging (Telegram, WhatsApp, Discord), Dev & Automation (GitHub, Browser, Cron), LLMs (OpenAI, Anthropic, Ollama). Install/configure directly. |
-| **Settings** | Browser engine config (GoLogin API token, profile ID), intelligence providers (OpenAI/Anthropic keys), GoLogin affiliate CTA. |
+| **OpenClaw** | Live overview of the OpenClaw runtime — workspace files, agent configs, SOUL persona, config editor. Tabbed interface: Overview, Workspace, Agents. |
+| **Workflow Builder** | Visual n8n-style workflow builder. AI-powered graph generation from natural language. Cron scheduling, execution timeline, evidence viewer. |
+| **Skill Library** | Browse real workspace skill files from `~/.openclaw/workspace/`. Edit and save with live JSON parsing. |
+| **Integration Store** | Categorized cards for all integrations — Messaging (Telegram, WhatsApp, Discord), Dev & Automation (GitHub, Browser, Cron), LLMs (OpenAI, Anthropic, Ollama). Status derived from vault credentials. |
+| **Multi-Agent Routing** | Configure the routing engine: extraction mode (auto/apify/browser), retry policy, evidence chain toggle. |
+| **Cost Analytics** | Real-time view of configured providers, gateway status, vault credential count. Per-provider status cards. |
+| **Settings** | Browser engine config (GoLogin), intelligence providers (OpenAI/Anthropic keys), daemon control. |
 
 Includes light/dark theme toggle and real-time system status indicator.
 
@@ -143,9 +195,25 @@ Single Electron application with three processes:
 
 | Process | Technology | Role |
 |---------|------------|------|
-| **Main** | Node.js + TypeScript | OpenClaw lifecycle, vault, daemon, gateway, IPC handlers |
+| **Main** | Node.js + TypeScript | HTTP API server (:31311), OpenClaw lifecycle, vault, daemon, gateway, services |
 | **Preload** | contextBridge | Type-safe API exposure to renderer |
 | **Renderer** | React 19 + Tailwind CSS v4 + Zustand | All UI: onboarding, dashboard, settings |
+
+### API Layer
+
+The main process exposes an Express HTTP API on `127.0.0.1:31311` with 50+ endpoints covering:
+
+- **OpenClaw lifecycle** — install, status, repair, daemon start/stop
+- **Vault** — store, list, get, delete, rotate credentials
+- **Gateway** — connect, disconnect, status, RPC calls
+- **Config** — get, apply, diff, rollback, backups
+- **Workflows** — create, list, get, execute, schedule, generate graph
+- **GoLogin** — list profiles, launch, stop, test session
+- **Apify** — list actors, run, get status
+- **Evidence** — get chain, verify, export
+- **Routing** — get/set config
+- **Diagnostics** — health check, export bundle, daemon logs
+- **OpenClaw Files** — overview, config, identity, workspace, agents, cron, logs
 
 ### Project Structure
 
@@ -161,8 +229,9 @@ zeeqit-agent-ai/
 │   ├── main/                   Electron main process
 │   │   ├── index.ts            App entry, window creation, IPC
 │   │   ├── ipc/register.ts     Centralized IPC handler registration
+│   │   ├── server/http-api.ts  Express HTTP API server (50+ routes)
 │   │   └── services/
-│   │       ├── openclaw/       Installer, daemon, config, runtime, health
+│   │       ├── openclaw/       Installer, daemon, config, runtime, health, files
 │   │       ├── vault/          AES-256-GCM credential store + OS keychain
 │   │       ├── gateway/        WebSocket client + RPC for OpenClaw Gateway
 │   │       ├── gologin/        GoLogin API client, profiles, session verify
@@ -174,22 +243,25 @@ zeeqit-agent-ai/
 │   │       └── platform/       App paths, atomic filesystem operations
 │   ├── preload/                contextBridge API + type-safe invoke/on
 │   ├── renderer/               React application
+│   │   ├── api/                HTTP client (all API calls to :31311)
 │   │   ├── views/
 │   │   │   ├── Onboarding/     4-step wizard (Architecture → Deploy)
 │   │   │   ├── Dashboard/      Main layout with sidebar
-│   │   │   ├── Topology/       Live network graph + inspector
-│   │   │   ├── SkillLibrary/   Skill cards + JSON editor
+│   │   │   ├── OpenClaw/       Runtime overview, workspace, agents
+│   │   │   ├── Workflows/      Builder, timeline, evidence viewer
+│   │   │   ├── SkillLibrary/   Workspace file browser + editor
 │   │   │   ├── IntegrationStore/ Categorized integration cards
-│   │   │   ├── Settings/       Provider keys, browser engine, daemon
-│   │   │   └── Workflows/      Builder, timeline, evidence viewer
+│   │   │   ├── MultiAgent/     Routing engine configuration
+│   │   │   ├── CostAnalytics/  Provider status + cost overview
+│   │   │   └── Settings/       Provider keys, browser engine, daemon
 │   │   ├── components/         TopBar, Sidebar, TerminalEmulator, UI kit
 │   │   ├── hooks/              useGateway, useHealth, useEvidence, useIpc
 │   │   ├── store/              Zustand stores (app, onboarding, settings…)
 │   │   └── styles/             Tailwind globals, CSS variables, themes
 │   └── shared/                 IPC channels, schemas (Zod), health contract
 ├── tests/
-│   ├── unit/                   81 unit tests (services + components)
-│   └── smoke/                  8 smoke tests (install, repair, rollback…)
+│   ├── unit/                   Unit tests (services + components + API)
+│   └── smoke/                  Smoke tests (install, repair, rollback…)
 ├── electron.vite.config.ts     Build configuration
 ├── electron-builder.config.ts  Packaging configuration (dmg/AppImage/exe)
 ├── tsconfig.json               TypeScript project references
@@ -201,16 +273,19 @@ zeeqit-agent-ai/
 
 | Service | File | Purpose |
 |---------|------|---------|
+| **HTTP API Server** | `server/http-api.ts` | Express server on :31311, 50+ routes, SSE for real-time events |
 | **Installer** | `services/openclaw/installer.ts` | Idempotent 7-step install with checkpoint resume |
 | **Runtime Resolver** | `services/openclaw/runtime-resolver.ts` | Embedded → System → Download (Node.js v22 from nodejs.org) |
 | **Daemon Manager** | `services/openclaw/daemon.ts` | Delegates to `openclaw gateway` CLI for start/stop/status |
-| **Config Compiler** | `services/openclaw/config-compiler.ts` | Zeeqit state → openclaw.json, atomic write, schema validation |
+| **Config Compiler** | `services/openclaw/config-compiler.ts` | Zeeqit state → openclaw.json, atomic write, schema validation, vault credential injection |
 | **Config Backup** | `services/openclaw/config-backup.ts` | Last 10 configs, rollback, diff preview |
-| **Credential Vault** | `services/vault/credential-store.ts` | AES-256-GCM encryption, per-credential salt+IV, key rotation |
+| **OpenClaw Files** | `services/openclaw/files.ts` | Read/write workspace, agents, cron, logs from `~/.openclaw/` |
+| **Credential Vault** | `services/vault/credential-store.ts` | AES-256-GCM encryption, per-credential salt+IV, key rotation, auto-sync to openclaw.json |
 | **Keychain Adapter** | `services/vault/keychain.ts` | macOS Keychain / Windows DPAPI / Linux libsecret + PBKDF2 fallback |
 | **Gateway Client** | `services/gateway/websocket-client.ts` | Exponential backoff, heartbeat, rate limiting, bounded event queue |
 | **Evidence Chain** | `services/evidence/chain.ts` | SHA-256 hash chain linking every execution step |
 | **Routing Engine** | `services/routing/engine.ts` | Planner → Extractor → Validator → Prover pipeline |
+| **Workflow Executor** | `services/workflow/executor.ts` | CRUD + execution of workflows, cron scheduling |
 | **GoLogin Client** | `services/gologin/client.ts` | Profile CRUD, CDP bridge, session verification |
 | **Apify Client** | `services/apify/client.ts` | Actor runner with 60s TTL cache and browser fallback |
 
@@ -230,12 +305,24 @@ zeeqit-agent-ai/
 | Auth tag | 16 bytes (GCM authentication) |
 | Key rotation | Supported with automatic re-encryption |
 
+### Vault-to-Config Bridge
+
+When credentials are stored in the vault, they are automatically synced to the OpenClaw config file (`~/.openclaw/openclaw.json`) for supported keys:
+
+| Vault Key | Config Path |
+|-----------|------------|
+| `anthropic/api-key` | `auth.profiles.anthropic` |
+| `openai/api-key` | `auth.profiles.openai` |
+| `telegram/bot-token` | `channels.telegram.botToken` |
+
+Sync is non-fatal — vault storage always succeeds even if config sync fails.
+
 ### Threat Mitigation
 
 | Threat | Mitigation |
 |--------|------------|
 | Credential theft from disk | All secrets AES-256-GCM encrypted. Master key in OS keychain. |
-| Network exposure | OpenClaw Gateway binds to `127.0.0.1` only. |
+| Network exposure | OpenClaw Gateway binds to `127.0.0.1` only. HTTP API binds to `127.0.0.1` only. |
 | Corrupt config | Atomic write (tmp → fsync → rename), schema validation, 10-config rollback history. |
 | Fake success | Evidence hash chain — every step has `input_hash`, `output_hash`, `prev_hash`. |
 | Log leakage | LogRing with structured redaction. |
@@ -253,7 +340,7 @@ Every installation and config operation is:
 
 ## Testing
 
-104 unit tests + 8 smoke tests across 16 test files.
+121 unit tests + 8 smoke tests across 20 test files.
 
 ```bash
 npm test              # Run all unit tests
@@ -279,6 +366,7 @@ npm run test:smoke    # Run smoke tests
 | Daemon management (openclaw CLI delegation) | ✓ |
 | Workflow executor CRUD + execution | ✓ |
 | IPC handler wiring (all domains) | ✓ |
+| HTTP API server routes + SSE | ✓ |
 | Smoke: fresh install, repair, rollback, offline, interrupted | ✓ |
 
 ---
@@ -327,7 +415,10 @@ npm run dev
 User action in dashboard
     │
     ▼
-Zeeqit writes openclaw.json + calls GoLogin/Apify APIs
+React UI calls HTTP API (:31311)
+    │
+    ▼
+Main process writes openclaw.json + vault + calls GoLogin/Apify APIs
     │
     ▼
 OpenClaw Gateway executes (ws://127.0.0.1:18789)
@@ -363,13 +454,14 @@ All data is stored locally under the platform-specific app data directory:
 | Linux | `~/.local/share/zeeqit/` |
 
 ```
-Zeeqit/
-├── openclaw/              OpenClaw runtime + openclaw.json
-├── vault/                 Encrypted credential store
-├── evidence/              Hash chain + artifacts
-├── config-history/        Last 10 config snapshots
-├── checkpoints/           Install checkpoint for crash recovery
-└── logs/                  Structured log ring buffer
+Zeeqit/                        ~/.openclaw/
+├── vault/                     ├── openclaw.json
+├── evidence/                  ├── agents/
+├── config-history/            ├── workspace/
+├── checkpoints/               ├── canvas/
+└── logs/                      ├── cron/
+                               ├── identity/
+                               └── logs/
 ```
 
 ---
@@ -377,11 +469,12 @@ Zeeqit/
 ## Roadmap
 
 - [x] **Phase 1** — Electron shell, onboarding wizard, silent OpenClaw install, credential vault, daemon management, settings UI
-- [x] **Phase 2** — Topology view, skill library, GoLogin integration, evidence chain, routing engine
+- [x] **Phase 2** — Skill library, GoLogin integration, evidence chain, routing engine
 - [x] **Phase 3** — Integration store, channels config, light/dark theme, design polish
-- [ ] **Phase 4** — Workflow builder with target + goal + schedule + evidence timeline
-- [ ] **Phase 5** — ClawHub skill marketplace, multi-agent routing UI
-- [ ] **Phase 6** — Cost analytics, cron scheduling, affiliate attribution
+- [x] **Phase 4** — Workflow builder with AI graph generation, cron scheduling, evidence timeline
+- [x] **Phase 5** — OpenClaw dashboard, multi-agent routing UI, cost analytics, 50+ API endpoints
+- [ ] **Phase 6** — ClawHub skill marketplace, affiliate attribution
+- [ ] **Phase 7** — Production installers (DMG/AppImage/EXE), auto-updates, telemetry
 
 ---
 

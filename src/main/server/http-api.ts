@@ -864,8 +864,33 @@ export class HttpApiServer {
     app.post('/api/workflow/schedule', async (req, res) => {
       try {
         const { WorkflowScheduler } = await import('../services/workflow/scheduler')
+        const { WorkflowExecutor } = await import('../services/workflow/executor')
         const { workflowId, cron } = req.body
+
+        // Register in Zeeqit's in-memory scheduler
         WorkflowScheduler.getInstance().schedule(workflowId, cron)
+
+        // Also register in OpenClaw's native cron system
+        const workflow = await WorkflowExecutor.getInstance().getWorkflow(workflowId)
+        const name = workflow?.name || workflowId
+        try {
+          const { execFile: ef } = await import('child_process')
+          const { promisify: p } = await import('util')
+          const exec = p(ef)
+          await exec('openclaw', [
+            'cron', 'add',
+            '--name', name,
+            '--message', workflow?.prompt || `Execute workflow ${name}`,
+            '--cron', cron,
+            '--json',
+          ], { timeout: 15_000, env: { ...process.env } })
+          logger.info('Cron registered in OpenClaw', { workflowId, cron })
+        } catch (cronErr) {
+          logger.warn('Failed to register cron in OpenClaw (non-fatal)', {
+            error: String(cronErr),
+          })
+        }
+
         res.json(ok())
       } catch (err) {
         res.json({ success: false, error: { code: 'WORKFLOW_ERROR', message: String(err) } })
