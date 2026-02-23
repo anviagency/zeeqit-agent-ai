@@ -56,6 +56,8 @@ import { RuntimeResolver } from '../../../src/main/services/openclaw/runtime-res
 describe('RuntimeResolver', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockExecFile.mockReset()
+    mockExistsSync.mockReset()
     ;(RuntimeResolver as unknown as { instance: null }).instance = null
   })
 
@@ -82,9 +84,20 @@ describe('RuntimeResolver', () => {
   })
 
   describe('findSystem', () => {
-    it('should find system node when available on PATH', async () => {
+    it('should reject system node below minimum version 22.12.0', async () => {
       mockExecFile
-        .mockResolvedValueOnce({ stdout: 'v20.0.0\n' })
+        .mockResolvedValueOnce({ stdout: 'v20.19.4\n' })
+        .mockResolvedValueOnce({ stdout: '/usr/local/bin/node\n' })
+
+      const resolver = RuntimeResolver.getInstance()
+      const result = await resolver.findSystem()
+
+      expect(result).toBeNull()
+    })
+
+    it('should accept system node at exactly minimum version 22.12.0', async () => {
+      mockExecFile
+        .mockResolvedValueOnce({ stdout: 'v22.12.0\n' })
         .mockResolvedValueOnce({ stdout: '/usr/local/bin/node\n' })
 
       const resolver = RuntimeResolver.getInstance()
@@ -92,7 +105,31 @@ describe('RuntimeResolver', () => {
 
       expect(result).not.toBeNull()
       expect(result!.type).toBe('system')
-      expect(result!.version).toBe('v20.0.0')
+      expect(result!.version).toBe('v22.12.0')
+    })
+
+    it('should accept system node above minimum version', async () => {
+      mockExecFile
+        .mockResolvedValueOnce({ stdout: 'v22.14.0\n' })
+        .mockResolvedValueOnce({ stdout: '/usr/local/bin/node\n' })
+
+      const resolver = RuntimeResolver.getInstance()
+      const result = await resolver.findSystem()
+
+      expect(result).not.toBeNull()
+      expect(result!.type).toBe('system')
+      expect(result!.version).toBe('v22.14.0')
+    })
+
+    it('should reject Node v20 even if on PATH', async () => {
+      mockExecFile
+        .mockResolvedValueOnce({ stdout: 'v20.0.0\n' })
+
+      const resolver = RuntimeResolver.getInstance()
+      const result = await resolver.findSystem()
+
+      // v20 is below minimum — should NOT resolve which command
+      expect(result).toBeNull()
     })
 
     it('should return null when node is not on PATH', async () => {

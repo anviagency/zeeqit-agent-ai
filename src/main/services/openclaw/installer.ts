@@ -28,6 +28,7 @@ const OPENCLAW_VERSION = 'latest'
  */
 export class OpenClawInstaller {
   private static instance: OpenClawInstaller | null = null
+  private resolvedRuntimePath: string | null = null
 
   private constructor() {}
 
@@ -266,9 +267,16 @@ export class OpenClawInstaller {
       throw new Error(`Runtime at ${runtime.path} failed integrity verification`)
     }
 
+    this.resolvedRuntimePath = runtime.path
     this.emitProgress('runtime', 'running', `Node.js ${runtime.version} found at ${runtime.path}`)
     this.emitProgress('runtime', 'running', `Runtime type: ${runtime.type}, integrity: verified`)
     logger.info('Runtime resolved', { type: runtime.type, path: runtime.path })
+  }
+
+  /** Returns env with the resolved runtime's bin directory prepended to PATH. */
+  private getOpenClawEnv(): Record<string, string | undefined> {
+    if (!this.resolvedRuntimePath) return { ...process.env }
+    return { ...process.env, PATH: this.buildPathEnv(this.resolvedRuntimePath) }
   }
 
   private async stepOpenClaw(config: Record<string, unknown>): Promise<void> {
@@ -295,8 +303,14 @@ export class OpenClawInstaller {
   ): Promise<void> {
     this.emitProgress('openclaw', 'running', 'Installing OpenClaw via npm (global)...')
 
+    const runtime = await RuntimeResolver.getInstance().resolve()
+    const runtimeEnv = { ...process.env, PATH: this.buildPathEnv(runtime.path) }
+
     try {
-      const { stdout: existingVersion } = await execFileAsync('openclaw', ['--version'], { timeout: 5_000 })
+      const { stdout: existingVersion } = await execFileAsync('openclaw', ['--version'], {
+        timeout: 5_000,
+        env: runtimeEnv,
+      })
       if (existingVersion.trim()) {
         logger.info('OpenClaw already installed globally', { version: existingVersion.trim() })
         this.emitProgress('openclaw', 'running', `OpenClaw ${existingVersion.trim()} already installed`)
@@ -306,18 +320,20 @@ export class OpenClawInstaller {
       // Not installed yet
     }
 
-    const runtime = await RuntimeResolver.getInstance().resolve()
     const npmPath = this.resolveNpmPath(runtime.path)
 
     this.emitProgress('openclaw', 'running', 'Running: npm install -g openclaw ...')
 
     await execFileAsync(runtime.path, [npmPath, 'install', '-g', `openclaw@${OPENCLAW_VERSION}`], {
       timeout: 300_000,
-      env: { ...process.env, PATH: this.buildPathEnv(runtime.path) }
+      env: runtimeEnv,
     })
 
     try {
-      const { stdout: version } = await execFileAsync('openclaw', ['--version'], { timeout: 5_000 })
+      const { stdout: version } = await execFileAsync('openclaw', ['--version'], {
+        timeout: 5_000,
+        env: runtimeEnv,
+      })
       logger.info('OpenClaw installed via npm', { version: version.trim() })
       this.emitProgress('openclaw', 'running', `OpenClaw ${version.trim()} installed successfully`)
     } catch {
@@ -338,11 +354,14 @@ export class OpenClawInstaller {
 
     await execFileAsync(shell, shellArgs, {
       timeout: 600_000,
-      env: { ...process.env }
+      env: this.getOpenClawEnv()
     })
 
     try {
-      const { stdout: version } = await execFileAsync('openclaw', ['--version'], { timeout: 5_000 })
+      const { stdout: version } = await execFileAsync('openclaw', ['--version'], {
+        timeout: 5_000,
+        env: this.getOpenClawEnv(),
+      })
       logger.info('OpenClaw installed via curl', { version: version.trim() })
       this.emitProgress('openclaw', 'running', `OpenClaw ${version.trim()} installed`)
     } catch {
@@ -474,7 +493,7 @@ export class OpenClawInstaller {
     try {
       const { stdout } = await execFileAsync('openclaw', args, {
         timeout: 60_000,
-        env: { ...process.env }
+        env: this.getOpenClawEnv()
       })
 
       logger.info('OpenClaw onboard completed', { output: stdout.substring(0, 500) })
@@ -507,7 +526,7 @@ export class OpenClawInstaller {
           '--provider', 'openai'
         ], {
           timeout: 10_000,
-          env: { ...process.env, OPENAI_API_KEY: intelligence['openaiKey'] }
+          env: { ...this.getOpenClawEnv(), OPENAI_API_KEY: intelligence['openaiKey'] }
         })
       } catch {
         logger.warn('Failed to add OpenAI as additional provider')
@@ -528,7 +547,7 @@ export class OpenClawInstaller {
           'channels', 'add',
           '--channel', 'telegram',
           '--token', auth['telegramToken']
-        ], { timeout: 15_000 })
+        ], { timeout: 15_000, env: this.getOpenClawEnv() })
         this.emitProgress('credentials', 'running', 'Telegram channel configured')
       } catch (err) {
         logger.warn('Failed to add Telegram channel', {
@@ -578,7 +597,7 @@ export class OpenClawInstaller {
     try {
       await execFileAsync('openclaw', ['gateway', 'install', '--force', '--json'], {
         timeout: 30_000,
-        env: { ...process.env }
+        env: this.getOpenClawEnv()
       })
       this.emitProgress('daemon', 'running', 'Gateway service installed')
     } catch (err) {
@@ -592,7 +611,7 @@ export class OpenClawInstaller {
     try {
       await execFileAsync('openclaw', ['gateway', 'start'], {
         timeout: 15_000,
-        env: { ...process.env }
+        env: this.getOpenClawEnv()
       })
     } catch {
       logger.debug('gateway start returned non-zero (may already be running)')
@@ -602,7 +621,8 @@ export class OpenClawInstaller {
 
     try {
       const { stdout: verifyOut } = await execFileAsync('openclaw', ['gateway', 'status'], {
-        timeout: 10_000
+        timeout: 10_000,
+        env: this.getOpenClawEnv()
       })
 
       if (verifyOut.includes('Runtime: running') && verifyOut.includes('RPC probe: ok')) {
@@ -625,7 +645,7 @@ export class OpenClawInstaller {
     try {
       const { stdout } = await execFileAsync('openclaw', [
         'doctor', '--repair', '--non-interactive'
-      ], { timeout: 30_000 })
+      ], { timeout: 30_000, env: this.getOpenClawEnv() })
 
       const hasErrors = stdout.includes('CRITICAL') || stdout.includes('FAIL')
 

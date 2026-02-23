@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { StatusDot } from './ui/StatusDot'
 import { AffiliateLink } from './ui/AffiliateLink'
 
-type NavId = 'topology' | 'skill-library' | 'workflows' | 'cost-analytics' | 'multi-agent' | 'settings'
+type NavId = 'skill-library' | 'workflows' | 'cost-analytics' | 'multi-agent' | 'settings'
 
 interface SidebarProps {
   activeNav: NavId
@@ -23,7 +23,6 @@ interface NavItem {
 const GOLOGIN_AFFILIATE_URL = 'https://gologin.com/join/zeeqit-IILQREB'
 
 const navItems: NavItem[] = [
-  { id: 'topology', label: 'Topology', icon: <TopologyIcon /> },
   { id: 'skill-library', label: 'Skill Library', icon: <SkillLibraryIcon /> },
   { id: 'workflows', label: 'Workflows', icon: <WorkflowsIcon /> },
   { id: 'cost-analytics', label: 'Cost Analytics', icon: <CostIcon />, badge: 'P3', group: 'phase3' },
@@ -36,7 +35,7 @@ const navItems: NavItem[] = [
  * Fixed width: 280px.
  *
  * @example
- * <Sidebar activeNav="topology" onNavigate={setView} />
+ * <Sidebar activeNav="workflows" onNavigate={setView} />
  */
 export function Sidebar({
   activeNav,
@@ -140,18 +139,6 @@ function DiamondLogo(): React.JSX.Element {
         fill="currentColor"
         className="text-accent"
       />
-    </svg>
-  )
-}
-
-function TopologyIcon(): React.JSX.Element {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="6" cy="6" r="3" />
-      <circle cx="18" cy="6" r="3" />
-      <circle cx="12" cy="18" r="3" />
-      <line x1="8.5" y1="7.5" x2="10.5" y2="16" />
-      <line x1="15.5" y1="7.5" x2="13.5" y2="16" />
     </svg>
   )
 }

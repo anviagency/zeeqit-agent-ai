@@ -15,6 +15,7 @@ const execFileAsync = promisify(execFile)
 const logger = LogRing.getInstance()
 
 const NODE_DOWNLOAD_VERSION = 'v22.14.0'
+const NODE_MIN_VERSION = 'v22.12.0'
 
 type PlatformKey = 'darwin-arm64' | 'darwin-x64' | 'linux-x64' | 'win-x64'
 
@@ -129,6 +130,14 @@ export class RuntimeResolver {
 
       if (!version.startsWith('v')) {
         logger.debug('System node returned unexpected version format', { version })
+        return null
+      }
+
+      if (!this.meetsMinimumVersion(version)) {
+        logger.debug('System node does not meet minimum version', {
+          found: version,
+          required: NODE_MIN_VERSION,
+        })
         return null
       }
 
@@ -349,6 +358,16 @@ export class RuntimeResolver {
     if (os === 'darwin') return 'darwin-x64'
     if (os === 'linux') return 'linux-x64'
     return 'win-x64'
+  }
+
+  private meetsMinimumVersion(version: string): boolean {
+    const parse = (v: string): number[] =>
+      v.replace(/^v/, '').split('.').map(Number)
+    const [aMaj, aMin, aPat] = parse(version)
+    const [bMaj, bMin, bPat] = parse(NODE_MIN_VERSION)
+    if (aMaj !== bMaj) return aMaj > bMaj
+    if (aMin !== bMin) return aMin > bMin
+    return aPat >= bPat
   }
 
   private async getNodeVersion(binaryPath: string): Promise<string> {

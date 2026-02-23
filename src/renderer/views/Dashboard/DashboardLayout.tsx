@@ -1,17 +1,16 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAppStore, type DashboardView } from '@/store/app.store'
 import { useGateway } from '@/hooks/useGateway'
 import { TopBar } from '@/components/TopBar'
-import { TopologyView } from '@/views/Topology/TopologyView'
 import { SkillLibraryView } from '@/views/SkillLibrary/SkillLibraryView'
 import { IntegrationStoreView } from '@/views/IntegrationStore/IntegrationStoreView'
 import { SettingsView } from '@/views/Settings/SettingsView'
 import { WorkflowsView } from '@/views/Workflows/WorkflowsView'
 import { CostAnalyticsView } from '@/views/CostAnalytics/CostAnalyticsView'
 import { MultiAgentView } from '@/views/MultiAgent/MultiAgentView'
+import { api } from '@/api'
 
 const viewComponents: Record<DashboardView, React.ComponentType> = {
-  topology: TopologyView,
   skills: SkillLibraryView,
   store: IntegrationStoreView,
   settings: SettingsView,
@@ -35,17 +34,6 @@ const navItems: NavItem[] = [
         <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
         <circle cx="8.5" cy="8.5" r="1.5" />
         <polyline points="21 15 16 10 5 21" />
-      </svg>
-    ),
-  },
-  {
-    id: 'topology',
-    label: 'Runtime Topology',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-        <circle cx="12" cy="12" r="10" />
-        <line x1="2" y1="12" x2="22" y2="12" />
-        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
       </svg>
     ),
   },
@@ -83,7 +71,18 @@ export function DashboardLayout(): React.JSX.Element {
   const { state: gwState } = useGateway()
   const [searchValue, setSearchValue] = useState('')
 
-  const ActiveView = viewComponents[currentView] ?? TopologyView
+  const [goLoginProfile, setGoLoginProfile] = useState<string | null>(null)
+
+  useEffect(() => {
+    api.vault.get('gologin', 'profile-id').then((result) => {
+      if (result.success && result.data) {
+        const data = result.data as { exists: boolean; masked: string | null }
+        setGoLoginProfile(data.exists ? data.masked : null)
+      }
+    }).catch(() => {})
+  }, [])
+
+  const ActiveView = viewComponents[currentView] ?? WorkflowsView
 
   return (
     <div className="relative flex h-screen w-screen overflow-hidden" style={{ backgroundColor: 'var(--color-bg-base)' }}>
@@ -173,12 +172,15 @@ export function DashboardLayout(): React.JSX.Element {
               GoLogin Profile
             </span>
             <span
-              className="h-1.5 w-1.5 rounded-full bg-success"
-              style={{ boxShadow: '0 0 8px var(--color-success)' }}
+              className="h-1.5 w-1.5 rounded-full"
+              style={{
+                background: goLoginProfile ? 'var(--color-success)' : 'var(--color-text-muted)',
+                boxShadow: goLoginProfile ? '0 0 8px var(--color-success)' : 'none',
+              }}
             />
           </div>
-          <div className="font-mono text-xs text-text-main mb-3">
-            APEX-Primary-01
+          <div className="font-mono text-xs mb-3" style={{ color: goLoginProfile ? 'var(--color-text-main)' : 'var(--color-text-muted)' }}>
+            {goLoginProfile ?? 'Not configured'}
           </div>
           <a
             href={GOLOGIN_AFFILIATE_URL}

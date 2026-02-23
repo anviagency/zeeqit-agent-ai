@@ -9,6 +9,12 @@ export const CredentialEntrySchema = z.object({
     'gologin',
     'apify',
     'telegram',
+    'instagram',
+    'tiktok',
+    'whatsapp',
+    'nanobanano',
+    's3',
+    'gdrive',
     'custom'
   ]),
   label: z.string(),

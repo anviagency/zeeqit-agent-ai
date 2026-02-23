@@ -104,6 +104,7 @@ export const httpApi = {
 
   workflow: {
     create: (workflow: unknown) => post('/api/workflow/create', workflow),
+    generateGraph: (prompt: string) => post('/api/workflow/generate-graph', { prompt }),
     execute: (workflowId: string) => post(`/api/workflow/execute/${workflowId}`),
     list: () => get('/api/workflow/list'),
     get: (workflowId: string) => get(`/api/workflow/${workflowId}`),

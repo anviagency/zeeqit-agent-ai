@@ -246,6 +246,30 @@ export class HttpApiServer {
       }
     })
 
+    app.get('/api/vault/get', async (req, res) => {
+      try {
+        const { CredentialStore } = await import('../services/vault/credential-store')
+        const service = String(req.query.service ?? '')
+        const key = String(req.query.key ?? '')
+        if (!service || !key) {
+          res.json({ success: false, error: { code: 'VAULT_ERROR', message: 'service and key are required' } })
+          return
+        }
+        const value = await CredentialStore.getInstance().get(service, key)
+        if (value === null) {
+          res.json(ok({ exists: false, masked: null }))
+          return
+        }
+        // Mask: first 4 + *** + last 4 (or shorter for small values)
+        const masked = value.length > 10
+          ? `${value.slice(0, 4)}${'*'.repeat(Math.min(value.length - 8, 20))}${value.slice(-4)}`
+          : '*'.repeat(value.length)
+        res.json(ok({ exists: true, masked }))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'VAULT_ERROR', message: String(err) } })
+      }
+    })
+
     app.get('/api/vault/status', async (_req, res) => {
       try {
         const { CredentialStore } = await import('../services/vault/credential-store')
@@ -303,6 +327,74 @@ export class HttpApiServer {
         res.json(ok(result))
       } catch (err) {
         res.json({ success: false, error: { code: 'HEALTH_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/workflow/generate-graph', async (req, res) => {
+      try {
+        const { prompt } = req.body
+        if (!prompt) {
+          res.json({ success: false, error: { code: 'WORKFLOW_ERROR', message: 'prompt is required' } })
+          return
+        }
+
+        const { execFile } = await import('child_process')
+        const { promisify } = await import('util')
+        const execFileAsync = promisify(execFile)
+
+        const systemPrompt = [
+          'You are a workflow graph generator. Given a user prompt, return ONLY valid JSON (no markdown, no explanation) with this structure:',
+          '{"nodes":[{"type":"<node-type>","title":"<title>","desc":"<description>","config":{...}}]}',
+          'Available node types: google-search, web-scrape, screenshot, navigate, instagram-post, telegram-send, tiktok-upload, whatsapp-send, nanobanano-upload, nanobanano-download, s3-upload, s3-download, gdrive-upload, gdrive-download, openai-generate, anthropic-generate, ai-analyze, ai-summarize, api, agent, channel.',
+          'Each node should have sensible config keys based on its type. Return nodes in execution order.',
+        ].join(' ')
+
+        const args = [
+          'agent',
+          '--message', `${systemPrompt}\n\nUser prompt: ${prompt}`,
+          '--local',
+          '--json',
+        ]
+
+        const { stdout } = await execFileAsync('openclaw', args, {
+          timeout: 60_000,
+          env: { ...process.env },
+        })
+
+        // Try to parse the agent response as JSON containing nodes
+        const agentResult = JSON.parse(stdout)
+        const content = agentResult?.result ?? agentResult?.output ?? stdout
+
+        // Extract JSON from response (agent may wrap it)
+        const jsonMatch = typeof content === 'string'
+          ? content.match(/\{[\s\S]*"nodes"[\s\S]*\}/)
+          : null
+        const graphData = jsonMatch ? JSON.parse(jsonMatch[0]) : (typeof content === 'object' ? content : null)
+
+        if (graphData?.nodes?.length > 0) {
+          // Position nodes
+          let xPos = 80
+          const positioned = graphData.nodes.map((n: Record<string, unknown>, idx: number) => {
+            const node = {
+              id: `n${idx + 1}`,
+              type: n.type ?? 'agent',
+              title: n.title ?? `Step ${idx + 1}`,
+              desc: n.desc ?? '',
+              x: xPos,
+              y: 180,
+              icon: '',
+              config: (n.config ?? {}) as Record<string, string>,
+              missing: false,
+            }
+            xPos += 340
+            return node
+          })
+          res.json(ok({ nodes: positioned }))
+        } else {
+          res.json({ success: false, error: { code: 'PARSE_ERROR', message: 'Could not parse graph from AI response' } })
+        }
+      } catch (err) {
+        res.json({ success: false, error: { code: 'WORKFLOW_ERROR', message: String(err) } })
       }
     })
 
