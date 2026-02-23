@@ -16,8 +16,11 @@ vi.mock('fs/promises', () => ({
   copyFile: (...args: unknown[]) => mockCopyFile(...args)
 }))
 
+const mockExistsSync = vi.fn().mockReturnValue(true)
+
 vi.mock('fs', () => ({
-  mkdirSync: vi.fn()
+  mkdirSync: vi.fn(),
+  existsSync: (...args: unknown[]) => mockExistsSync(...args)
 }))
 
 const mockLock = vi.fn()
@@ -37,6 +40,7 @@ import { atomicWriteFile, atomicReadFile } from '../../../src/main/services/plat
 describe('atomicWriteFile', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockExistsSync.mockReturnValue(true)
     const release = vi.fn().mockResolvedValue(undefined)
     mockLock.mockResolvedValue(release)
     mockWriteFile.mockResolvedValue(undefined)
@@ -91,6 +95,17 @@ describe('atomicWriteFile', () => {
 
     expect(mockLock).toHaveBeenCalled()
     expect(release).toHaveBeenCalled()
+  })
+
+  it('should write directly without lock when file does not exist', async () => {
+    mockExistsSync.mockReturnValue(false)
+
+    await atomicWriteFile('/data/new-file.json', '{"new":true}')
+
+    expect(mockWriteFile).toHaveBeenCalledTimes(1)
+    expect(mockWriteFile.mock.calls[0][0]).toBe('/data/new-file.json')
+    expect(mockLock).not.toHaveBeenCalled()
+    expect(mockRename).not.toHaveBeenCalled()
   })
 })
 

@@ -342,7 +342,18 @@ export class CredentialStore {
   }
 
   private async readVault(): Promise<CredentialVault> {
-    const raw = await atomicReadFile(this.getVaultFilePath())
+    const vaultPath = this.getVaultFilePath()
+
+    if (!existsSync(vaultPath)) {
+      const emptyVault: CredentialVault = {
+        version: INITIAL_KEY_VERSION,
+        credentials: []
+      }
+      await this.writeVault(emptyVault)
+      return emptyVault
+    }
+
+    const raw = await atomicReadFile(vaultPath)
     return JSON.parse(raw) as CredentialVault
   }
 

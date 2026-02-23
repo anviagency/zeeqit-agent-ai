@@ -2,7 +2,7 @@ import { readFile, writeFile, rename, copyFile, unlink, open } from 'fs/promises
 import { dirname, join } from 'path'
 import { randomBytes } from 'crypto'
 import { platform } from 'os'
-import { mkdirSync } from 'fs'
+import { mkdirSync, existsSync } from 'fs'
 import lockfile from 'proper-lockfile'
 
 const WINDOWS_RETRY_COUNT = 3
@@ -106,6 +106,15 @@ export async function atomicWriteFile(
   content: string | Buffer
 ): Promise<void> {
   mkdirSync(dirname(targetPath), { recursive: true })
+
+  // On first-time creation the file doesn't exist yet.
+  // proper-lockfile requires the target file to exist for locking,
+  // so we write directly when the file is new (no concurrent readers possible).
+  if (!existsSync(targetPath)) {
+    await writeFile(targetPath, content, { encoding: 'utf-8' })
+    await fsyncFile(targetPath)
+    return
+  }
 
   const lockPath = `${targetPath}.lock`
   mkdirSync(dirname(lockPath), { recursive: true })
