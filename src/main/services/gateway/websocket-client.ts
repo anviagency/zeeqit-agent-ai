@@ -10,6 +10,9 @@
 
 import WebSocket from 'ws'
 import { BrowserWindow } from 'electron'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
+import { homedir } from 'os'
 import { IpcChannels } from '@shared/ipc-channels'
 import type { GatewayStateEvent } from '@shared/ipc-channels'
 import { LogRing } from '../diagnostics/log-ring'
@@ -82,6 +85,22 @@ export class GatewayWebSocketClient {
    *
    * @throws If the connection cannot be established.
    */
+  /**
+   * Reads the gateway auth token from ~/.openclaw/openclaw.json.
+   */
+  private async readGatewayToken(): Promise<string | null> {
+    try {
+      const configPath = join(homedir(), '.openclaw', 'openclaw.json')
+      const raw = await readFile(configPath, { encoding: 'utf-8' })
+      const config = JSON.parse(raw)
+      const token = config?.gateway?.auth?.token
+      return typeof token === 'string' && token.length > 0 ? token : null
+    } catch {
+      this.logger.debug('Could not read gateway auth token, connecting without auth')
+      return null
+    }
+  }
+
   async connect(): Promise<void> {
     if (this.ws && this.state === 'connected') {
       this.logger.debug('WebSocket already connected')
@@ -89,12 +108,19 @@ export class GatewayWebSocketClient {
     }
 
     this.intentionalClose = false
+    const token = await this.readGatewayToken()
 
     return new Promise<void>((resolve, reject) => {
       try {
-        this.ws = new WebSocket(GATEWAY_URL, {
-          handshakeTimeout: 5_000
-        })
+        const wsOptions: WebSocket.ClientOptions = {
+          handshakeTimeout: 5_000,
+        }
+        if (token) {
+          wsOptions.headers = { Authorization: `Bearer ${token}` }
+          this.logger.debug('Connecting to gateway with auth token')
+        }
+
+        this.ws = new WebSocket(GATEWAY_URL, wsOptions)
 
         this.ws.on('open', () => {
           this.reconnectAttempt = 0

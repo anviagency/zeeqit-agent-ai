@@ -117,6 +117,22 @@ export const httpApi = {
     health: () => get('/api/diagnostics/health'),
   },
 
+  openclawFiles: {
+    getOverview: () => get('/api/openclaw/files/overview'),
+    getConfig: () => get('/api/openclaw/files/config'),
+    getIdentity: () => get('/api/openclaw/files/identity'),
+    listWorkspace: () => get('/api/openclaw/files/workspace'),
+    readWorkspaceFile: (filename: string) =>
+      get(`/api/openclaw/files/workspace/${encodeURIComponent(filename)}`),
+    writeWorkspaceFile: (filename: string, content: string) =>
+      post(`/api/openclaw/files/workspace/${encodeURIComponent(filename)}`, { content }),
+    getAgents: () => get('/api/openclaw/files/agents'),
+    getCron: () => get('/api/openclaw/files/cron'),
+    saveCron: (data: unknown) => post('/api/openclaw/files/cron', data),
+    tailLog: (filename: string, lines = 200) =>
+      get(`/api/openclaw/files/logs/${encodeURIComponent(filename)}?lines=${lines}`),
+  },
+
   events: {
     onInstallProgress: (cb: (...args: unknown[]) => void) => {
       const eventSource = new EventSource(`${getBaseUrl()}/api/events/install-progress`)

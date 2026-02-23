@@ -117,7 +117,7 @@ export class HttpApiServer {
       })
     })
 
-    app.get('/api/events/gateway-state', (req, res) => {
+    app.get('/api/events/gateway-state', async (req, res) => {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -125,6 +125,16 @@ export class HttpApiServer {
       })
       res.write('data: {"type":"connected"}\n\n')
       this.gatewayStateClients.add(res)
+
+      // Immediately send the current gateway state so UI doesn't stay "disconnected"
+      try {
+        const { GatewayWebSocketClient } = await import('../services/gateway/websocket-client')
+        const currentState = GatewayWebSocketClient.getInstance().getState()
+        res.write(`data: ${JSON.stringify({ state: currentState })}\n\n`)
+      } catch {
+        // Gateway client not available yet — send disconnected
+        res.write(`data: ${JSON.stringify({ state: 'disconnected' })}\n\n`)
+      }
 
       req.on('close', () => {
         this.gatewayStateClients.delete(res)
@@ -496,6 +506,109 @@ export class HttpApiServer {
         res.json(ok(JSON.parse(stdout)))
       } catch (err) {
         res.json(ok({ skills: [] }))
+      }
+    })
+
+    // ─── OpenClaw Files ───────────────────────────────────────
+
+    app.get('/api/openclaw/files/overview', async (_req, res) => {
+      try {
+        const { OpenClawFilesService } = await import('../services/openclaw/files')
+        const overview = await OpenClawFilesService.getInstance().getOverview()
+        res.json(ok(overview))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'OPENCLAW_FILES_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/openclaw/files/config', async (_req, res) => {
+      try {
+        const { OpenClawFilesService } = await import('../services/openclaw/files')
+        const config = await OpenClawFilesService.getInstance().getConfig()
+        res.json(ok(config))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'OPENCLAW_FILES_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/openclaw/files/identity', async (_req, res) => {
+      try {
+        const { OpenClawFilesService } = await import('../services/openclaw/files')
+        const identity = await OpenClawFilesService.getInstance().getIdentity()
+        res.json(ok(identity))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'OPENCLAW_FILES_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/openclaw/files/workspace', async (_req, res) => {
+      try {
+        const { OpenClawFilesService } = await import('../services/openclaw/files')
+        const files = await OpenClawFilesService.getInstance().listWorkspaceFiles()
+        res.json(ok(files))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'OPENCLAW_FILES_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/openclaw/files/workspace/:filename', async (req, res) => {
+      try {
+        const { OpenClawFilesService } = await import('../services/openclaw/files')
+        const content = await OpenClawFilesService.getInstance().readWorkspaceFile(req.params.filename)
+        res.json(ok({ filename: req.params.filename, content }))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'OPENCLAW_FILES_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/openclaw/files/workspace/:filename', async (req, res) => {
+      try {
+        const { OpenClawFilesService } = await import('../services/openclaw/files')
+        await OpenClawFilesService.getInstance().writeWorkspaceFile(req.params.filename, req.body.content)
+        res.json(ok())
+      } catch (err) {
+        res.json({ success: false, error: { code: 'OPENCLAW_FILES_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/openclaw/files/agents', async (_req, res) => {
+      try {
+        const { OpenClawFilesService } = await import('../services/openclaw/files')
+        const agents = await OpenClawFilesService.getInstance().getAgentAuth()
+        res.json(ok(agents))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'OPENCLAW_FILES_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/openclaw/files/cron', async (_req, res) => {
+      try {
+        const { OpenClawFilesService } = await import('../services/openclaw/files')
+        const cron = await OpenClawFilesService.getInstance().getCronJobs()
+        res.json(ok(cron))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'OPENCLAW_FILES_ERROR', message: String(err) } })
+      }
+    })
+
+    app.post('/api/openclaw/files/cron', async (req, res) => {
+      try {
+        const { OpenClawFilesService } = await import('../services/openclaw/files')
+        await OpenClawFilesService.getInstance().saveCronJobs(req.body)
+        res.json(ok())
+      } catch (err) {
+        res.json({ success: false, error: { code: 'OPENCLAW_FILES_ERROR', message: String(err) } })
+      }
+    })
+
+    app.get('/api/openclaw/files/logs/:filename', async (req, res) => {
+      try {
+        const { OpenClawFilesService } = await import('../services/openclaw/files')
+        const lines = parseInt(String(req.query.lines ?? '200'), 10)
+        const logLines = await OpenClawFilesService.getInstance().tailLog(req.params.filename, lines)
+        res.json(ok({ filename: req.params.filename, lines: logLines }))
+      } catch (err) {
+        res.json({ success: false, error: { code: 'OPENCLAW_FILES_ERROR', message: String(err) } })
       }
     })
 

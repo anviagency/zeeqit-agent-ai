@@ -8,6 +8,7 @@ import { SettingsView } from '@/views/Settings/SettingsView'
 import { WorkflowsView } from '@/views/Workflows/WorkflowsView'
 import { CostAnalyticsView } from '@/views/CostAnalytics/CostAnalyticsView'
 import { MultiAgentView } from '@/views/MultiAgent/MultiAgentView'
+import { OpenClawView } from '@/views/OpenClaw/OpenClawView'
 import { api } from '@/api'
 
 const viewComponents: Record<DashboardView, React.ComponentType> = {
@@ -17,6 +18,7 @@ const viewComponents: Record<DashboardView, React.ComponentType> = {
   workflows: WorkflowsView,
   'cost-analytics': CostAnalyticsView,
   'multi-agent': MultiAgentView,
+  openclaw: OpenClawView,
 }
 
 interface NavItem {
@@ -34,6 +36,17 @@ const navItems: NavItem[] = [
         <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
         <circle cx="8.5" cy="8.5" r="1.5" />
         <polyline points="21 15 16 10 5 21" />
+      </svg>
+    ),
+  },
+  {
+    id: 'openclaw',
+    label: 'OpenClaw',
+    icon: (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M12 2L2 7l10 5 10-5-10-5z" />
+        <path d="M2 17l10 5 10-5" />
+        <path d="M2 12l10 5 10-5" />
       </svg>
     ),
   },

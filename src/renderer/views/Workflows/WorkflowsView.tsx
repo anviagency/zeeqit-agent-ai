@@ -919,45 +919,160 @@ interface KeywordMatch {
 
 const KEYWORD_MAP: KeywordMatch[] = [
   // Web — specific first
-  { type: 'google-search', keywords: ['google', 'search google', 'google search'], priority: 10 },
-  { type: 'web-scrape', keywords: ['scrape', 'crawl', 'extract from page', 'extract data'], priority: 8 },
-  { type: 'screenshot', keywords: ['screenshot', 'capture page', 'snapshot'], priority: 8 },
-  { type: 'navigate', keywords: ['navigate', 'go to', 'visit', 'open url', 'browse'], priority: 5 },
+  { type: 'google-search', keywords: [
+    'google search', 'search google', 'google',
+    'חיפוש גוגל', 'חפש בגוגל', 'גוגל', 'לגוגל',
+  ], priority: 10 },
+  { type: 'web-scrape', keywords: [
+    'scrape', 'crawl', 'extract from page', 'extract data',
+    'download images', 'download photos', 'download files', 'download content',
+    'get images', 'get photos', 'grab images', 'pull images', 'collect images',
+    'תוריד תמונות', 'הורד תמונות', 'תוריד קבצים', 'הורד קבצים',
+    'תוריד פוסטים', 'תאסוף תמונות', 'תאסוף מידע', 'חלץ מידע',
+    'תוריד', 'להוריד', 'הורדה', 'לחלץ', 'לאסוף',
+  ], priority: 8 },
+  { type: 'screenshot', keywords: [
+    'screenshot', 'capture page', 'snapshot', 'screen capture',
+    'צילום מסך', 'צלם מסך', 'תצלם',
+  ], priority: 8 },
+  { type: 'navigate', keywords: [
+    'navigate', 'go to', 'visit', 'open url', 'browse', 'open page',
+    'gologin', 'go login', 'go-login',
+    'facebook', 'fb', 'פייסבוק', 'פיסבוק',
+    'twitter', 'x.com',
+    'linkedin', 'לינקדאין',
+    'youtube', 'יוטיוב',
+    'כנס ל', 'תכנס ל', 'היכנס ל', 'תיכנס', 'לגלוש', 'גלוש',
+    'פתח', 'תפתח', 'לפתוח',
+    'לפרופיל', 'פרופיל',
+  ], priority: 5 },
 
-  // Social
-  { type: 'instagram-post', keywords: ['instagram', 'insta', 'ig post'], priority: 10 },
-  { type: 'telegram-send', keywords: ['telegram', 'tg'], priority: 10 },
-  { type: 'tiktok-upload', keywords: ['tiktok', 'tik tok'], priority: 10 },
-  { type: 'whatsapp-send', keywords: ['whatsapp', 'whats app'], priority: 10 },
+  // Social — publishing / posting
+  { type: 'instagram-post', keywords: [
+    'instagram', 'insta', 'ig post', 'post to instagram', 'ig',
+    'אינסטגרם', 'אינסטה', 'לאינסטגרם',
+    'פרסום', 'לפרסם', 'תפרסם', 'פרסם', 'לפרסום', 'שלח לפרסום', 'תשלח לפרסום',
+    'publish', 'post it', 'share it', 'upload post',
+  ], priority: 10 },
+  { type: 'telegram-send', keywords: [
+    'telegram', 'tg', 'send telegram', 'telegram message',
+    'טלגרם', 'לטלגרם', 'שלח בטלגרם', 'תשלח בטלגרם',
+  ], priority: 10 },
+  { type: 'tiktok-upload', keywords: [
+    'tiktok', 'tik tok', 'tik-tok', 'post to tiktok',
+    'טיקטוק', 'טיק טוק', 'לטיקטוק',
+  ], priority: 10 },
+  { type: 'whatsapp-send', keywords: [
+    'whatsapp', 'whats app', 'send whatsapp',
+    'וואטסאפ', 'ווטסאפ', 'וואצאפ', 'לוואטסאפ',
+  ], priority: 10 },
 
   // Storage
-  { type: 'nanobanano-upload', keywords: ['nanobanano', 'nano banano', 'nanobana'], priority: 10 },
-  { type: 's3-upload', keywords: ['s3', 'aws s3', 'amazon s3'], priority: 10 },
-  { type: 'gdrive-upload', keywords: ['google drive', 'gdrive', 'drive upload'], priority: 10 },
+  { type: 'nanobanano-upload', keywords: [
+    'nanobanano', 'nano banano', 'nanobana', 'nano-banano',
+    'ננו בננו', 'ננובננו', 'נאנו בננו', 'נאנובננו',
+    'תעביר עם ננו', 'העבר עם ננו', 'העלה לננו',
+  ], priority: 10 },
+  { type: 's3-upload', keywords: [
+    's3', 'aws s3', 'amazon s3', 'upload to s3',
+    'אס3', 'העלה לאמזון',
+  ], priority: 10 },
+  { type: 'gdrive-upload', keywords: [
+    'google drive', 'gdrive', 'drive upload',
+    'גוגל דרייב', 'דרייב', 'לדרייב',
+  ], priority: 10 },
 
   // AI — specific
-  { type: 'openai-generate', keywords: ['openai', 'gpt', 'chatgpt', 'gpt-4'], priority: 10 },
-  { type: 'anthropic-generate', keywords: ['anthropic', 'claude'], priority: 10 },
-  { type: 'ai-summarize', keywords: ['summarize', 'summary', 'tldr', 'shorten'], priority: 8 },
-  { type: 'ai-analyze', keywords: ['analyze', 'analysis', 'classify', 'categorize'], priority: 8 },
+  { type: 'openai-generate', keywords: [
+    'openai', 'gpt', 'chatgpt', 'gpt-4', 'gpt4',
+    'ג\'יפיטי',
+  ], priority: 10 },
+  { type: 'anthropic-generate', keywords: [
+    'anthropic', 'claude', 'קלוד',
+  ], priority: 10 },
+  { type: 'ai-summarize', keywords: [
+    'summarize', 'summary', 'tldr', 'shorten',
+    'סכם', 'תסכם', 'סיכום', 'לסכם', 'תקצר', 'לקצר',
+  ], priority: 8 },
+  { type: 'ai-analyze', keywords: [
+    'analyze', 'analysis', 'classify', 'categorize',
+    'נתח', 'תנתח', 'ניתוח', 'לנתח', 'מיין', 'תמיין', 'לסווג',
+  ], priority: 8 },
 
   // Generic
-  { type: 'api', keywords: ['api', 'webhook', 'endpoint', 'rest', 'fetch'], priority: 4 },
-  { type: 'agent', keywords: ['agent', 'ai agent', 'think', 'decision', 'process'], priority: 3 },
+  { type: 'api', keywords: [
+    'api', 'webhook', 'endpoint', 'rest', 'fetch url',
+  ], priority: 4 },
+  { type: 'agent', keywords: [
+    'agent', 'ai agent', 'think', 'decision',
+    'סוכן', 'אייג\'נט',
+  ], priority: 3 },
 ]
+
+/**
+ * Split prompt into semantic "steps" separated by commas, periods, "then", "after that",
+ * or Hebrew equivalents like "אחרי זה", "ואז", "אח״כ".
+ * Each segment is matched independently so the same type can appear in different steps.
+ */
+function splitIntoSteps(prompt: string): { text: string; startOffset: number }[] {
+  // Split on common step delimiters (keep track of character offsets)
+  const delimiters = /[,;.]|\bthen\b|\bafter that\b|\bnext\b|\band then\b|אחרי זה|אח"כ|אח״כ|ואז|לאחר מכן|אחר כך/gi
+  const steps: { text: string; startOffset: number }[] = []
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = delimiters.exec(prompt)) !== null) {
+    const segment = prompt.slice(lastIndex, match.index).trim()
+    if (segment.length > 0) {
+      steps.push({ text: segment, startOffset: lastIndex })
+    }
+    lastIndex = match.index + match[0].length
+  }
+  // Last segment
+  const remaining = prompt.slice(lastIndex).trim()
+  if (remaining.length > 0) {
+    steps.push({ text: remaining, startOffset: lastIndex })
+  }
+
+  return steps.length > 0 ? steps : [{ text: prompt, startOffset: 0 }]
+}
 
 function generateLocalNodes(prompt: string): WorkflowNode[] {
   const lower = prompt.toLowerCase()
+  const steps = splitIntoSteps(lower)
   const matched: { type: ExtendedNodeType; index: number }[] = []
 
+  // Match each step against keyword map
+  for (const step of steps) {
+    let bestMatch: { type: ExtendedNodeType; priority: number; kwIndex: number } | null = null
+
+    for (const km of KEYWORD_MAP) {
+      for (const kw of km.keywords) {
+        const idx = step.text.indexOf(kw)
+        if (idx !== -1) {
+          // Skip if this type was already matched (dedup)
+          if (matched.some((m) => m.type === km.type)) break
+          // Pick highest priority match within this step
+          if (!bestMatch || km.priority > bestMatch.priority) {
+            bestMatch = { type: km.type, priority: km.priority, kwIndex: step.startOffset + idx }
+          }
+          break
+        }
+      }
+    }
+
+    if (bestMatch && !matched.some((m) => m.type === bestMatch!.type)) {
+      matched.push({ type: bestMatch.type, index: bestMatch.kwIndex })
+    }
+  }
+
+  // Also do a full-prompt scan for any remaining keywords not yet matched
   for (const km of KEYWORD_MAP) {
+    if (matched.some((m) => m.type === km.type)) continue
     for (const kw of km.keywords) {
       const idx = lower.indexOf(kw)
       if (idx !== -1) {
-        // Don't add duplicate types
-        if (!matched.some((m) => m.type === km.type)) {
-          matched.push({ type: km.type, index: idx })
-        }
+        matched.push({ type: km.type, index: idx })
         break
       }
     }

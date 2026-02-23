@@ -75,12 +75,21 @@ export function getAppDataPath(): string {
 }
 
 /**
- * Path to the OpenClaw runtime and configuration directory.
+ * Path to the OpenClaw runtime and configuration directory (Zeeqit-managed copy).
  *
  * @returns `<appData>/openclaw/`
  */
 export function getOpenClawPath(): string {
   return ensureDir(join(getAppDataPath(), 'openclaw'))
+}
+
+/**
+ * Path to the user's OpenClaw home directory (~/.openclaw/).
+ * This is where the OpenClaw runtime stores its own config, workspace,
+ * agents, logs, cron, etc. Distinct from the Zeeqit app data path.
+ */
+export function getOpenClawHomePath(): string {
+  return join(homedir(), '.openclaw')
 }
 
 /**
