@@ -3,7 +3,7 @@ import cors from 'cors'
 import type { Server } from 'http'
 import type { Response } from 'express'
 import { LogRing } from '../services/diagnostics/log-ring'
-import type { IpcResult, InstallProgressEvent } from '@shared/ipc-channels'
+import type { IpcResult, InstallProgressEvent, GatewayStateEvent } from '@shared/ipc-channels'
 
 const logger = LogRing.getInstance()
 const DEFAULT_PORT = 31311
@@ -22,6 +22,7 @@ export class HttpApiServer {
   private server: Server | null = null
   private port = DEFAULT_PORT
   private sseClients: Set<Response> = new Set()
+  private gatewayStateClients: Set<Response> = new Set()
 
   private constructor() {}
 
@@ -46,6 +47,20 @@ export class HttpApiServer {
         client.write(`data: ${data}\n\n`)
       } catch {
         this.sseClients.delete(client)
+      }
+    }
+  }
+
+  /**
+   * Broadcasts a gateway state change to all connected gateway-state SSE clients.
+   */
+  broadcastGatewayState(event: GatewayStateEvent): void {
+    const data = JSON.stringify(event)
+    for (const client of this.gatewayStateClients) {
+      try {
+        client.write(`data: ${data}\n\n`)
+      } catch {
+        this.gatewayStateClients.delete(client)
       }
     }
   }
@@ -102,11 +117,38 @@ export class HttpApiServer {
       })
     })
 
+    app.get('/api/events/gateway-state', (req, res) => {
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      })
+      res.write('data: {"type":"connected"}\n\n')
+      this.gatewayStateClients.add(res)
+
+      req.on('close', () => {
+        this.gatewayStateClients.delete(res)
+      })
+    })
+
     app.post('/api/openclaw/install', async (req, res) => {
       try {
         const { OpenClawInstaller } = await import('../services/openclaw/installer')
         const installer = OpenClawInstaller.getInstance()
         await installer.install(req.body)
+
+        // Auto-connect WebSocket to gateway after successful install
+        try {
+          const { GatewayWebSocketClient } = await import('../services/gateway/websocket-client')
+          await GatewayWebSocketClient.getInstance().connect()
+          this.broadcastGatewayState({ state: 'connected' })
+          logger.info('Gateway WebSocket auto-connected after install')
+        } catch (connectErr) {
+          logger.warn('Gateway auto-connect failed after install', {
+            error: connectErr instanceof Error ? connectErr.message : String(connectErr),
+          })
+        }
+
         res.json(ok())
       } catch (err) {
         res.json({ success: false, error: { code: 'INSTALL_ERROR', message: String(err) } })

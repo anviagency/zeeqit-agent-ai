@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useAppStore, type DashboardView } from '@/store/app.store'
+import { useGateway } from '@/hooks/useGateway'
 import { TopBar } from '@/components/TopBar'
 import { TopologyView } from '@/views/Topology/TopologyView'
 import { SkillLibraryView } from '@/views/SkillLibrary/SkillLibraryView'
@@ -79,6 +80,7 @@ const GOLOGIN_AFFILIATE_URL = 'https://gologin.com/join/zeeqit-IILQREB'
 export function DashboardLayout(): React.JSX.Element {
   const currentView = useAppStore((s) => s.currentView) as DashboardView
   const setCurrentView = useAppStore((s) => s.setCurrentView)
+  const { state: gwState } = useGateway()
   const [searchValue, setSearchValue] = useState('')
 
   const ActiveView = viewComponents[currentView] ?? TopologyView
@@ -211,6 +213,7 @@ export function DashboardLayout(): React.JSX.Element {
         <TopBar
           searchValue={searchValue}
           onSearchChange={setSearchValue}
+          gatewayState={{ state: gwState }}
         />
         <ActiveView />
       </main>

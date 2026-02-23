@@ -92,6 +92,15 @@ export function StepDeployment(): React.JSX.Element {
         if (result.success) {
           push('  ✓ Configuration written to ~/.openclaw/openclaw.json', 'success')
           push('  ✓ Gateway service installed and running', 'success')
+
+          // Connect WebSocket to gateway so dashboard shows "Connected"
+          try {
+            await api.gateway.connect()
+            push('  ✓ Gateway WebSocket connected', 'success')
+          } catch {
+            push('  → Gateway connection will retry in background', 'info')
+          }
+
           push('', 'info')
           push('ZEEQIT ONLINE', 'bold')
           setDeployComplete(true)

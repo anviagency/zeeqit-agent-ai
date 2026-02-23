@@ -133,7 +133,24 @@ export const httpApi = {
       }
     },
     onHealthUpdate: (_cb: (...args: unknown[]) => void) => () => {},
-    onGatewayState: (_cb: (...args: unknown[]) => void) => () => {},
+    onGatewayState: (cb: (...args: unknown[]) => void) => {
+      // Trigger gateway connect so WebSocket is established
+      post('/api/gateway/connect').catch(() => {})
+
+      const eventSource = new EventSource(`${getBaseUrl()}/api/events/gateway-state`)
+      eventSource.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data)
+          if (data.type === 'connected') return
+          cb(data)
+        } catch {
+          // ignore malformed events
+        }
+      }
+      return () => {
+        eventSource.close()
+      }
+    },
     onDaemonLog: (_cb: (...args: unknown[]) => void) => () => {},
     onWorkflowProgress: (_cb: (...args: unknown[]) => void) => () => {},
   },
