@@ -294,19 +294,29 @@ export function registerAllIpcHandlers(): void {
 
   // Workflow
   wrapHandler(IpcChannels.WORKFLOW_CREATE, async (workflow) => {
-    return ok(workflow)
+    const { WorkflowExecutor } = await import('../services/workflow/executor')
+    const created = await WorkflowExecutor.getInstance().create(
+      workflow as Record<string, unknown>
+    )
+    return ok(created)
   })
 
   wrapHandler(IpcChannels.WORKFLOW_EXECUTE, async (workflowId) => {
-    return fail('NOT_IMPLEMENTED', `Workflow execution for ${workflowId} not yet implemented`)
+    const { WorkflowExecutor } = await import('../services/workflow/executor')
+    const result = await WorkflowExecutor.getInstance().execute(workflowId as string)
+    return ok(result)
   })
 
   wrapHandler(IpcChannels.WORKFLOW_LIST, async () => {
-    return ok([])
+    const { WorkflowExecutor } = await import('../services/workflow/executor')
+    const workflows = await WorkflowExecutor.getInstance().listWorkflows()
+    return ok(workflows)
   })
 
   wrapHandler(IpcChannels.WORKFLOW_GET, async (workflowId) => {
-    return fail('NOT_FOUND', `Workflow ${workflowId} not found`)
+    const { WorkflowExecutor } = await import('../services/workflow/executor')
+    const workflow = await WorkflowExecutor.getInstance().getWorkflow(workflowId as string)
+    return ok(workflow)
   })
 
   wrapHandler(IpcChannels.WORKFLOW_SCHEDULE, async () => {

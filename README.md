@@ -203,7 +203,7 @@ zeeqit-agent-ai/
 |---------|------|---------|
 | **Installer** | `services/openclaw/installer.ts` | Idempotent 7-step install with checkpoint resume |
 | **Runtime Resolver** | `services/openclaw/runtime-resolver.ts` | Embedded → System → Download (Node.js v22 from nodejs.org) |
-| **Daemon Manager** | `services/openclaw/daemon.ts` | launchd (macOS), systemd (Linux), Scheduled Task (Windows) |
+| **Daemon Manager** | `services/openclaw/daemon.ts` | Delegates to `openclaw gateway` CLI for start/stop/status |
 | **Config Compiler** | `services/openclaw/config-compiler.ts` | Zeeqit state → openclaw.json, atomic write, schema validation |
 | **Config Backup** | `services/openclaw/config-backup.ts` | Last 10 configs, rollback, diff preview |
 | **Credential Vault** | `services/vault/credential-store.ts` | AES-256-GCM encryption, per-credential salt+IV, key rotation |
@@ -253,7 +253,7 @@ Every installation and config operation is:
 
 ## Testing
 
-81 unit tests + 8 smoke tests across 13 test files.
+104 unit tests + 8 smoke tests across 16 test files.
 
 ```bash
 npm test              # Run all unit tests
@@ -276,6 +276,9 @@ npm run test:smoke    # Run smoke tests
 | Apify actor cache TTL | ✓ |
 | Onboarding UI navigation + state | ✓ |
 | Settings view rendering | ✓ |
+| Daemon management (openclaw CLI delegation) | ✓ |
+| Workflow executor CRUD + execution | ✓ |
+| IPC handler wiring (all domains) | ✓ |
 | Smoke: fresh install, repair, rollback, offline, interrupted | ✓ |
 
 ---

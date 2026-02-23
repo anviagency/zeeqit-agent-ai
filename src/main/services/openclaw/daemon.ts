@@ -1,32 +1,23 @@
 import { platform } from 'os'
-import { join } from 'path'
-import { existsSync, readFileSync } from 'fs'
+import { execFile } from 'child_process'
+import { promisify } from 'util'
 import { LogRing } from '../diagnostics/log-ring'
-import { getOpenClawPath } from '../platform/app-paths'
-import { RuntimeResolver } from './runtime-resolver'
 import type { DaemonStatus } from './types'
 
+const execFileAsync = promisify(execFile)
 const logger = LogRing.getInstance()
-const FORCE_KILL_TIMEOUT_MS = 10_000
-const PID_FILE = 'daemon.pid'
-
-interface PlatformAdapter {
-  install(nodePath: string, openclawPath: string): Promise<void>
-  uninstall(): Promise<void>
-  start(): Promise<void>
-  stop(): Promise<void>
-  isInstalled(): boolean | Promise<boolean>
-}
+const CLI_TIMEOUT_MS = 15_000
+const STOP_TIMEOUT_MS = 10_000
 
 /**
- * Manages the OpenClaw daemon lifecycle across macOS, Linux, and Windows.
+ * Manages the OpenClaw daemon lifecycle by delegating to the `openclaw` CLI.
  *
- * Delegates platform-specific operations (launchd, systemd, schtasks) to
- * dedicated adapters while providing a unified API for start/stop/restart/status.
+ * Uses `openclaw gateway start/stop/status` commands which correctly handle
+ * the platform-specific service label (ai.openclaw.gateway on macOS,
+ * openclaw-gateway on Linux, etc.) regardless of how OpenClaw was installed.
  */
 export class DaemonManager {
   private static instance: DaemonManager | null = null
-  private adapter: PlatformAdapter | null = null
   private startTime: Date | null = null
 
   private constructor() {}
@@ -40,25 +31,19 @@ export class DaemonManager {
   }
 
   /**
-   * Starts the OpenClaw daemon via the platform-specific service manager.
+   * Starts the OpenClaw gateway daemon via `openclaw gateway start`.
    *
-   * @throws If the platform adapter fails to start the daemon.
+   * @throws If the CLI command fails.
    */
   async start(): Promise<void> {
     try {
-      logger.info('Starting OpenClaw daemon')
-      const adapter = await this.getPlatformAdapter()
+      logger.info('Starting OpenClaw daemon via CLI')
 
-      const installed = await adapter.isInstalled()
-      if (!installed) {
-        logger.info('Daemon service not installed, installing first')
-        const runtime = await RuntimeResolver.getInstance().resolve()
-        const openclawPath = this.resolveOpenClawEntryPoint()
-        await adapter.install(runtime.path, openclawPath)
-        logger.info('Daemon service installed')
-      }
+      await execFileAsync('openclaw', ['gateway', 'start'], {
+        timeout: CLI_TIMEOUT_MS,
+        env: { ...process.env }
+      })
 
-      await adapter.start()
       this.startTime = new Date()
       logger.info('OpenClaw daemon started')
     } catch (err) {
@@ -70,66 +55,43 @@ export class DaemonManager {
   }
 
   /**
-   * Resolves the OpenClaw entry point binary or script path.
-   * Checks for the npm .bin link first, then the package's own bin script.
-   */
-  private resolveOpenClawEntryPoint(): string {
-    const openclawDir = getOpenClawPath()
-    const candidates = [
-      join(openclawDir, 'node_modules', '.bin', 'openclaw'),
-      join(openclawDir, 'node_modules', 'openclaw', 'bin', 'openclaw.js'),
-      join(openclawDir, 'node_modules', 'openclaw', 'dist', 'index.js'),
-    ]
-
-    for (const candidate of candidates) {
-      if (existsSync(candidate)) {
-        logger.debug('Resolved OpenClaw entry point', { path: candidate })
-        return candidate
-      }
-    }
-
-    throw new Error(
-      `OpenClaw entry point not found. Checked: ${candidates.join(', ')}. ` +
-      'Run the installer first to install OpenClaw packages.'
-    )
-  }
-
-  /**
-   * Stops the OpenClaw daemon gracefully.
-   * If the daemon doesn't stop within 10 seconds, falls back to SIGKILL.
+   * Stops the OpenClaw gateway daemon via `openclaw gateway stop`.
+   * Falls back to PID-based kill if the CLI fails.
    */
   async stop(): Promise<void> {
     try {
-      logger.info('Stopping OpenClaw daemon')
-      const adapter = await this.getPlatformAdapter()
+      logger.info('Stopping OpenClaw daemon via CLI')
 
-      const stopPromise = adapter.stop()
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error('Daemon stop timed out, attempting force kill')),
-          FORCE_KILL_TIMEOUT_MS
-        )
-      )
-
-      try {
-        await Promise.race([stopPromise, timeoutPromise])
-      } catch (timeoutErr) {
-        logger.warn('Graceful stop timed out, force killing daemon')
-        await this.forceKill()
-      }
+      await execFileAsync('openclaw', ['gateway', 'stop'], {
+        timeout: STOP_TIMEOUT_MS,
+        env: { ...process.env }
+      })
 
       this.startTime = null
       logger.info('OpenClaw daemon stopped')
     } catch (err) {
-      logger.error('Failed to stop OpenClaw daemon', {
+      logger.warn('CLI stop failed, attempting PID-based kill', {
         error: err instanceof Error ? err.message : String(err)
       })
-      throw err
+
+      const status = await this.getStatus()
+      if (status.running && status.pid) {
+        try {
+          process.kill(status.pid, 'SIGTERM')
+          logger.info('Daemon killed via SIGTERM', { pid: status.pid })
+        } catch (killErr) {
+          logger.warn('Force kill failed', {
+            error: killErr instanceof Error ? killErr.message : String(killErr)
+          })
+        }
+      }
+
+      this.startTime = null
     }
   }
 
   /**
-   * Restarts the daemon by performing a stop followed by a start.
+   * Restarts the daemon by calling stop then start.
    */
   async restart(): Promise<void> {
     try {
@@ -146,145 +108,95 @@ export class DaemonManager {
   }
 
   /**
-   * Returns a status snapshot of the daemon process.
+   * Returns a status snapshot by querying `openclaw gateway status`.
+   *
+   * Attempts JSON parsing first (--json flag), falls back to parsing
+   * the human-readable output for "Runtime: running (pid NNNN, ...)".
    *
    * @returns Current daemon status including PID, uptime, and platform info.
    */
   async getStatus(): Promise<DaemonStatus> {
     try {
-      const pid = this.readPidFile()
-      const running = pid !== null && this.isPidAlive(pid)
-      const uptime = running && this.startTime
-        ? Math.floor((Date.now() - this.startTime.getTime()) / 1000)
-        : 0
+      const { stdout } = await execFileAsync(
+        'openclaw',
+        ['gateway', 'status', '--json'],
+        { timeout: CLI_TIMEOUT_MS, env: { ...process.env } }
+      )
 
-      return {
-        running,
-        pid: running ? pid : null,
-        uptime,
-        lastRestart: this.startTime?.toISOString() ?? null,
-        platform: platform(),
-        configVersion: await this.readConfigVersion()
+      // Try JSON parse first
+      try {
+        const parsed = JSON.parse(stdout)
+        return {
+          running: !!parsed.running,
+          pid: parsed.pid ?? null,
+          uptime: parsed.uptime ?? 0,
+          lastRestart: this.startTime?.toISOString() ?? null,
+          platform: platform(),
+          configVersion: parsed.version ?? 'unknown'
+        }
+      } catch {
+        // Fall through to text parsing
       }
+
+      return this.parseTextStatus(stdout)
     } catch (err) {
-      logger.error('Failed to get daemon status', {
-        error: err instanceof Error ? err.message : String(err)
-      })
-      return {
-        running: false,
-        pid: null,
-        uptime: 0,
-        lastRestart: null,
-        platform: platform(),
-        configVersion: 'unknown'
+      // --json may not be supported, try plain text
+      try {
+        const { stdout } = await execFileAsync(
+          'openclaw',
+          ['gateway', 'status'],
+          { timeout: CLI_TIMEOUT_MS, env: { ...process.env } }
+        )
+        return this.parseTextStatus(stdout)
+      } catch {
+        logger.debug('Gateway status check failed', {
+          error: err instanceof Error ? err.message : String(err)
+        })
+        return {
+          running: false,
+          pid: null,
+          uptime: 0,
+          lastRestart: null,
+          platform: platform(),
+          configVersion: 'unknown'
+        }
       }
     }
   }
 
   /**
-   * Checks whether the daemon process is currently alive by examining the PID file.
+   * Checks whether the gateway daemon is currently running.
    *
-   * @returns `true` if the daemon PID is alive, `false` otherwise.
+   * @returns `true` if the gateway reports a running state.
    */
   async isRunning(): Promise<boolean> {
     try {
-      const pid = this.readPidFile()
-      return pid !== null && this.isPidAlive(pid)
-    } catch (err) {
-      logger.debug('isRunning check failed', {
-        error: err instanceof Error ? err.message : String(err)
-      })
+      const status = await this.getStatus()
+      return status.running
+    } catch {
       return false
     }
   }
 
   /**
-   * Returns the platform-specific daemon adapter (launchd, systemd, or winsvc).
+   * Parses the human-readable `openclaw gateway status` output.
    *
-   * @returns The loaded platform adapter.
-   * @throws If the current platform is unsupported.
+   * Looks for patterns like:
+   * - "Runtime: running (pid 12345, state active)"
+   * - "Runtime: stopped"
    */
-  async getPlatformAdapter(): Promise<PlatformAdapter> {
-    if (this.adapter) return this.adapter
+  private parseTextStatus(stdout: string): DaemonStatus {
+    const runtimeMatch = stdout.match(/Runtime:\s*running\s*\(pid\s+(\d+)/)
+    const running = !!runtimeMatch
+    const pid = runtimeMatch ? parseInt(runtimeMatch[1], 10) : null
 
-    try {
-      const os = platform()
-
-      switch (os) {
-        case 'darwin': {
-          const { LaunchdAdapter } = await import('./daemon-platform/launchd')
-          this.adapter = LaunchdAdapter
-          break
-        }
-        case 'linux': {
-          const { SystemdAdapter } = await import('./daemon-platform/systemd')
-          this.adapter = SystemdAdapter
-          break
-        }
-        case 'win32': {
-          const { WinSvcAdapter } = await import('./daemon-platform/winsvc')
-          this.adapter = WinSvcAdapter
-          break
-        }
-        default:
-          throw new Error(`Unsupported platform for daemon management: ${os}`)
-      }
-
-      return this.adapter!
-    } catch (err) {
-      logger.error('Failed to load platform adapter', {
-        error: err instanceof Error ? err.message : String(err)
-      })
-      throw err
-    }
-  }
-
-  private readPidFile(): number | null {
-    try {
-      const pidPath = join(getOpenClawPath(), PID_FILE)
-      if (!existsSync(pidPath)) return null
-
-      const raw = readFileSync(pidPath, 'utf-8').trim()
-      const pid = parseInt(raw, 10)
-      return isNaN(pid) ? null : pid
-    } catch {
-      return null
-    }
-  }
-
-  private isPidAlive(pid: number): boolean {
-    try {
-      process.kill(pid, 0)
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  private async forceKill(): Promise<void> {
-    const pid = this.readPidFile()
-    if (pid === null) return
-
-    try {
-      process.kill(pid, 'SIGKILL')
-      logger.info('Daemon force-killed', { pid })
-    } catch (err) {
-      logger.warn('Force kill failed (process may have already exited)', {
-        pid,
-        error: err instanceof Error ? err.message : String(err)
-      })
-    }
-  }
-
-  private async readConfigVersion(): Promise<string> {
-    try {
-      const configPath = join(getOpenClawPath(), 'openclaw.json')
-      if (!existsSync(configPath)) return 'none'
-      const raw = readFileSync(configPath, 'utf-8')
-      const config = JSON.parse(raw)
-      return config.version ?? config.gateway?.reload?.mode ?? '1.0.0'
-    } catch {
-      return 'unknown'
+    return {
+      running,
+      pid,
+      uptime: 0,
+      lastRestart: this.startTime?.toISOString() ?? null,
+      platform: platform(),
+      configVersion: 'unknown'
     }
   }
 }
